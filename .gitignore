@@ -1,0 +1,12 @@
+/target/
+/config/
+/dist/
+*.log
+payload_*.bin
+**/payload_*.bin
+.env
+.device_id
+*.pdb
+*.msi
+*.exe
+*.raw

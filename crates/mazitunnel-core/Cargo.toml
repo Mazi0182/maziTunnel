@@ -1,0 +1,38 @@
+[package]
+name = "mazitunnel-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio.workspace = true
+bytes.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hmac.workspace = true
+hkdf.workspace = true
+chacha20poly1305.workspace = true
+aes-gcm.workspace = true
+rand.workspace = true
+hex.workspace = true
+socket2.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+flate2.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Networking_WinSock",
+    "Win32_System_Threading",
+    "Win32_System_Power",
+    "Win32_Media",
+    "Win32_System_IO",
+    "Win32_System_Registry",
+] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
