@@ -91,11 +91,11 @@ pub async fn run_panel_api(ctx: Arc<PanelApiContext>, port: u16) {
     let bind_addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = match TcpListener::bind(bind_addr).await {
         Ok(l) => {
-            info!("maziPanel HTTP API dinleyicisi baslatildi: 127.0.0.1:{}", port);
+            info!("maziPanel HTTP API dinleyicisi başlatıldı: 127.0.0.1:{}", port);
             l
         }
         Err(e) => {
-            error!("maziPanel HTTP API port 127.0.0.1:{} baglanamadi: {}", port, e);
+            error!("maziPanel HTTP API port 127.0.0.1:{} bağlanamadı: {}", port, e);
             return;
         }
     };
@@ -109,7 +109,7 @@ pub async fn run_panel_api(ctx: Arc<PanelApiContext>, port: u16) {
                 });
             }
             Err(e) => {
-                warn!("HTTP kabul hatasi: {}", e);
+                warn!("HTTP kabul hatası: {}", e);
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
         }
@@ -269,20 +269,20 @@ async fn dispatch_api(
         ("POST", "/api/version/refresh") => {
             ("200 OK", serde_json::json!({
                 "success": true,
-                "version": "2.0.0",
-                "message": "maziTunnel aktif ve guncel."
+                "version": env!("CARGO_PKG_VERSION"),
+                "message": "maziTunnel aktif ve güncel."
             }))
         }
         ("GET", "/api/ping") | ("GET", "") | ("GET", "/api") => {
             ("200 OK", serde_json::json!({
                 "status": "ok",
                 "service": "mazitunnel-server",
-                "version": "2.0.0"
+                "version": env!("CARGO_PKG_VERSION")
             }))
         }
         _ => {
             ("404 Not Found", serde_json::json!({
-                "error": "Bilinmeyen uc nokta",
+                "error": "Bilinmeyen uç nokta",
                 "path": path
             }))
         }
@@ -346,19 +346,19 @@ async fn handle_post_kick(body: &[u8], ctx: &PanelApiContext) -> (&'static str, 
     let payload: serde_json::Value = match serde_json::from_slice(body) {
         Ok(v) => v,
         Err(_) => {
-            return ("400 Bad Request", serde_json::json!({ "success": false, "error": "Gecersiz JSON verisi" }));
+            return ("400 Bad Request", serde_json::json!({ "success": false, "error": "Geçersiz JSON verisi" }));
         }
     };
 
     let addr = payload.get("addr").or_else(|| payload.get("peer_addr")).and_then(|v| v.as_str()).unwrap_or("").to_string();
     let hwid = payload.get("hwid").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
-    ctx.logger.log_kick(&addr, &addr, "Yonetici tarafindan atildi");
+    ctx.logger.log_kick(&addr, &addr, "Yönetici tarafından atıldı");
     let _ = ctx.cmd_tx.send(PanelCommand::Kick { addr: addr.clone(), hwid: hwid.clone() }).await;
 
     ("200 OK", serde_json::json!({
         "success": true,
-        "message": format!("Istemci baglantisi kesildi: {} ({})", addr, hwid)
+        "message": format!("İstemci bağlantısı kesildi: {} ({})", addr, hwid)
     }))
 }
 
@@ -366,7 +366,7 @@ async fn handle_post_ban(body: &[u8], ctx: &PanelApiContext) -> (&'static str, s
     let payload: serde_json::Value = match serde_json::from_slice(body) {
         Ok(v) => v,
         Err(_) => {
-            return ("400 Bad Request", serde_json::json!({ "success": false, "error": "Gecersiz JSON verisi" }));
+            return ("400 Bad Request", serde_json::json!({ "success": false, "error": "Geçersiz JSON verisi" }));
         }
     };
 
@@ -374,7 +374,7 @@ async fn handle_post_ban(body: &[u8], ctx: &PanelApiContext) -> (&'static str, s
     let addr = payload.get("addr").or_else(|| payload.get("peer_addr")).and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
     let username = payload.get("username").and_then(|v| v.as_str()).unwrap_or("Bilinmeyen").trim().to_string();
     let hostname = payload.get("hostname").or_else(|| payload.get("computer_name")).and_then(|v| v.as_str()).unwrap_or("-").trim().to_string();
-    let reason = payload.get("reason").and_then(|v| v.as_str()).unwrap_or("Yonetici tarafindan yasaklandi").trim().to_string();
+    let reason = payload.get("reason").and_then(|v| v.as_str()).unwrap_or("Yönetici tarafından yasaklandı").trim().to_string();
     let hwid_details = payload.get("hwid_details").cloned().unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
 
     if hwid.is_empty() && addr.is_empty() {
@@ -393,7 +393,7 @@ async fn handle_post_ban(body: &[u8], ctx: &PanelApiContext) -> (&'static str, s
 
     ("200 OK", serde_json::json!({
         "success": true,
-        "message": format!("{} basariyla yasaklandi.", username),
+        "message": format!("{} başarıyla yasaklandı.", username),
         "ban": ban_entry
     }))
 }
@@ -402,7 +402,7 @@ async fn handle_post_unban(body: &[u8], ctx: &PanelApiContext) -> (&'static str,
     let payload: serde_json::Value = match serde_json::from_slice(body) {
         Ok(v) => v,
         Err(_) => {
-            return ("400 Bad Request", serde_json::json!({ "success": false, "error": "Gecersiz JSON verisi" }));
+            return ("400 Bad Request", serde_json::json!({ "success": false, "error": "Geçersiz JSON verisi" }));
         }
     };
 
@@ -414,7 +414,7 @@ async fn handle_post_unban(body: &[u8], ctx: &PanelApiContext) -> (&'static str,
         .trim();
 
     if identifier.is_empty() {
-        return ("400 Bad Request", serde_json::json!({ "success": false, "error": "Kaldirilacak yasak kimligi (ID veya HWID) belirtilmedi" }));
+        return ("400 Bad Request", serde_json::json!({ "success": false, "error": "Kaldırılacak yasak kimliği (ID veya HWID) belirtilmedi" }));
     }
 
     let removed = {
@@ -425,12 +425,12 @@ async fn handle_post_unban(body: &[u8], ctx: &PanelApiContext) -> (&'static str,
     if removed {
         ("200 OK", serde_json::json!({
             "success": true,
-            "message": "Yasak basariyla kaldirildi."
+            "message": "Yasak başarıyla kaldırıldı."
         }))
     } else {
         ("200 OK", serde_json::json!({
             "success": true,
-            "message": "Belirtilen kimlikle eslesen aktif yasak bulunamadi."
+            "message": "Belirtilen kimlikle eşleşen aktif yasak bulunamadı."
         }))
     }
 }
@@ -444,12 +444,12 @@ async fn handle_clear_history(ctx: &PanelApiContext) -> (&'static str, serde_jso
     if cleared {
         ("200 OK", serde_json::json!({
             "success": true,
-            "message": "Baglanti gecmisi basariyla temizlendi."
+            "message": "Bağlantı geçmişi başarıyla temizlendi."
         }))
     } else {
         ("500 Internal Error", serde_json::json!({
             "success": false,
-            "error": "Gecmis dosyasina yazilamadi."
+            "error": "Geçmiş dosyasına yazılamadı."
         }))
     }
 }
@@ -483,7 +483,7 @@ async fn handle_regenerate_key(ctx: &PanelApiContext) -> (&'static str, serde_js
         "server_key": new_key,
         "serverKey": new_key,
         "room_id": derived_room_id,
-        "message": format!("Yeni sunucu baglanti kodu olusturuldu: {}", new_key)
+        "message": format!("Yeni sunucu bağlantı kodu oluşturuldu: {}", new_key)
     }))
 }
 
@@ -491,7 +491,7 @@ async fn handle_update_settings(body: &[u8], ctx: &PanelApiContext) -> (&'static
     let payload: serde_json::Value = match serde_json::from_slice(body) {
         Ok(v) => v,
         Err(_) => {
-            return ("400 Bad Request", serde_json::json!({ "success": false, "error": "Gecersiz JSON verisi" }));
+            return ("400 Bad Request", serde_json::json!({ "success": false, "error": "Geçersiz JSON verisi" }));
         }
     };
 
@@ -554,7 +554,7 @@ async fn handle_update_settings(body: &[u8], ctx: &PanelApiContext) -> (&'static
     let updated_cfg = ctx.config.read().await.clone();
     ("200 OK", serde_json::json!({
         "success": true,
-        "message": "Yapilandirma basariyla kaydedildi.",
+        "message": "Yapılandırma başarıyla kaydedildi.",
         "settings": updated_cfg
     }))
 }

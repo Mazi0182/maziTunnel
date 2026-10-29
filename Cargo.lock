@@ -314,7 +314,7 @@ dependencies = [
 
 [[package]]
 name = "mazitunnel-client"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "ab_glyph",
  "anyhow",
@@ -334,7 +334,7 @@ dependencies = [
 
 [[package]]
 name = "mazitunnel-core"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -358,7 +358,7 @@ dependencies = [
 
 [[package]]
 name = "mazitunnel-installer"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "ab_glyph",
  "anyhow",
@@ -368,7 +368,7 @@ dependencies = [
 
 [[package]]
 name = "mazitunnel-server"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "anyhow",
  "bytes",

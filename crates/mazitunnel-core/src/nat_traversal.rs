@@ -518,6 +518,10 @@ pub async fn rendezvous_client_full(
                         continue;
                     }
                 }
+                let msg_ts = msg.get("ts").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                if msg_ts > 0.0 && (start_ts - msg_ts) > 90.0 {
+                    continue;
+                }
                 let mtype = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");
                 if mtype == "server_hello" || mtype == "server_locked" {
                     let sip = msg.get("ip").or_else(|| msg.get("sip")).and_then(|v| v.as_str()).unwrap_or("");
@@ -525,32 +529,46 @@ pub async fn rendezvous_client_full(
                     let slan = msg.get("lan_ip").or_else(|| msg.get("slan")).and_then(|v| v.as_str()).unwrap_or("");
                     let lport = msg.get("local_port").or_else(|| msg.get("lport")).and_then(|v| v.as_u64()).unwrap_or(0) as u16;
 
-                    if !slan.is_empty() && lport > 0 {
-                        let mut local_addrs = Vec::new();
-                        if let Ok(addr) = format!("{}:{}", slan, lport).parse() {
-                            local_addrs.push(addr);
-                        }
-                        if let Ok(addr) = format!("127.0.0.1:{}", lport).parse() {
-                            if !local_addrs.contains(&addr) {
+                    let same_wan = !sip.is_empty() && sip == my_ep.ip.to_string();
+                    let same_subnet = !slan.is_empty() && !my_lan_ip.is_empty() && slan.rsplit_once('.').map(|p| p.0) == my_lan_ip.rsplit_once('.').map(|p| p.0);
+
+                    if same_wan || same_subnet {
+                        if !slan.is_empty() && lport > 0 {
+                            let mut local_addrs = Vec::new();
+                            if let Ok(addr) = format!("{}:{}", slan, lport).parse() {
                                 local_addrs.push(addr);
                             }
-                        }
-                        for addr in local_addrs.into_iter().rev() {
-                            addrs.retain(|a| a != &addr);
-                            addrs.insert(0, addr);
-                        }
-                    }
-                    if !sip.is_empty() && sport > 0 {
-                        if let Ok(addr) = format!("{}:{}", sip, sport).parse() {
-                            if !addrs.contains(&addr) {
-                                addrs.push(addr);
+                            if let Ok(addr) = format!("127.0.0.1:{}", lport).parse() {
+                                if !local_addrs.contains(&addr) {
+                                    local_addrs.push(addr);
+                                }
+                            }
+                            for addr in local_addrs.into_iter().rev() {
+                                addrs.retain(|a| a != &addr);
+                                addrs.insert(0, addr);
                             }
                         }
-                    }
-                    if !sip.is_empty() && lport > 0 && lport != sport {
-                        if let Ok(addr) = format!("{}:{}", sip, lport).parse() {
-                            if !addrs.contains(&addr) {
-                                addrs.push(addr);
+                        if !sip.is_empty() && sport > 0 {
+                            if let Ok(addr) = format!("{}:{}", sip, sport).parse() {
+                                if !addrs.contains(&addr) {
+                                    addrs.push(addr);
+                                }
+                            }
+                        }
+                    } else {
+                        // Remote WAN client
+                        if !sip.is_empty() && sport > 0 {
+                            if let Ok(addr) = format!("{}:{}", sip, sport).parse() {
+                                if !addrs.contains(&addr) {
+                                    addrs.push(addr);
+                                }
+                            }
+                        }
+                        if !sip.is_empty() && lport > 0 && lport != sport {
+                            if let Ok(addr) = format!("{}:{}", sip, lport).parse() {
+                                if !addrs.contains(&addr) {
+                                    addrs.push(addr);
+                                }
                             }
                         }
                     }
@@ -566,8 +584,11 @@ pub async fn rendezvous_client_full(
                     for part in rest.split('|') {
                         if let Ok(addr) = part.trim().parse::<SocketAddr>() {
                             if is_lan_addr(addr.ip()) {
-                                addrs.retain(|a| a != &addr);
-                                addrs.insert(0, addr);
+                                let same_subnet = !my_lan_ip.is_empty() && addr.ip().to_string().rsplit_once('.').map(|p| p.0) == my_lan_ip.rsplit_once('.').map(|p| p.0);
+                                if same_subnet {
+                                    addrs.retain(|a| a != &addr);
+                                    addrs.insert(0, addr);
+                                }
                             } else if !addrs.contains(&addr) {
                                 addrs.push(addr);
                             }
@@ -599,6 +620,7 @@ pub async fn rendezvous_client_full(
     let hex_body = hex::encode(enc_body);
 
     let _ = publish_signal(&room_id, &hex_body).await;
+    tokio::time::sleep(Duration::from_millis(250)).await;
 
     for attempt in 0..12 {
         if attempt > 0 && attempt % 3 == 0 {
@@ -648,7 +670,7 @@ pub async fn punch_udp_client_encrypted(
     let mut wan_targets = wan_candidates.clone();
     for &cand in &wan_candidates {
         let base_port = cand.port() as i32;
-        for delta in -8..=24 {
+        for delta in -8..=40 {
             let p = base_port + delta;
             if (1024..=65535).contains(&p) {
                 let mut a = cand;
@@ -732,7 +754,7 @@ pub async fn punch_udp_client_encrypted(
         tokio::time::sleep(Duration::from_millis(40)).await;
     }
 
-    candidates.first().copied()
+    wan_candidates.first().copied().or_else(|| candidates.first().copied())
 }
 
 pub async fn rendezvous_server(

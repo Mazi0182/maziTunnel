@@ -85,15 +85,15 @@ async fn main() -> anyhow::Result<()> {
     if stopped_flag.exists() {
         if !is_explicit_cli_start {
             info!(
-                "Sunucu maziPanel tarafindan durdurulmus (.stopped_by_panel mevcut). Servis beklemede kaliyor."
+                "Sunucu maziPanel tarafından durdurulmuş (.stopped_by_panel mevcut). Servis beklemede kalıyor."
             );
             while stopped_flag.exists() {
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             }
-            info!(".stopped_by_panel kaldirildi, maziTunnel sunucu servisi baslatiliyor...");
+            info!(".stopped_by_panel kaldırıldı, maziTunnel sunucu servisi başlatılıyor...");
         } else {
             let _ = std::fs::remove_file(&stopped_flag);
-            info!("Manuel baslatma algilandi; .stopped_by_panel kaldirildi.");
+            info!("Manuel başlatma algılandı; .stopped_by_panel kaldırıldı.");
         }
     }
 
@@ -102,14 +102,14 @@ async fn main() -> anyhow::Result<()> {
         Some(f) => f,
         None => {
             error!(
-                "Baska bir maziTunnel sunucu servisi zaten calisiyor (server.lock kilitli)."
+                "Başka bir maziTunnel sunucu servisi zaten çalışıyor (server.lock kilitli)."
             );
             std::process::exit(1);
         }
     };
 
-    info!("maziTunnel Sunucu Servisi baslatiliyor...");
-    info!("Yapilandirma dosyasi: {:?}", config_path);
+    info!("maziTunnel Sunucu Servisi başlatılıyor...");
+    info!("Yapılandırma dosyası: {:?}", config_path);
 
     let daemon = ServerDaemon::init(
         custom_config.as_deref(),
@@ -142,14 +142,14 @@ fn acquire_instance_lock(config_dir: &Path) -> Option<File> {
 fn print_help() {
     println!("maziTunnel Sunucu Servisi (Saf Rust)");
     println!();
-    println!("Kullanim:");
-    println!("  mazitunnel-server [SECENEKLER]");
+    println!("Kullanım:");
+    println!("  mazitunnel-server [SEÇENEKLER]");
     println!();
-    println!("Secenekler:");
-    println!("  -c, --config <YOL>       Ozel server_config.json yolu");
-    println!("  -a, --admin-key <SIFRE>  Yonetici sifresini gecici olarak ez");
-    println!("  --mazipanel              maziPanel entegrasyon modunda calis");
-    println!("  --standalone             Bagimsiz web konsol modunda calis");
-    println!("  -v, --verbose            Konsola detayli teknik loglari da yaz");
-    println!("  -h, --help               Bu yardim ekranini goster");
+    println!("Seçenekler:");
+    println!("  -c, --config <YOL>       Özel server_config.json yolu");
+    println!("  -a, --admin-key <ŞİFRE>  Yönetici şifresini geçici olarak ez");
+    println!("  --mazipanel              maziPanel entegrasyon modunda çalış");
+    println!("  --standalone             Bağımsız web konsol modunda çalış");
+    println!("  -v, --verbose            Konsola detaylı teknik logları da yaz");
+    println!("  -h, --help               Bu yardım ekranını göster");
 }

@@ -123,7 +123,7 @@ impl FontManager {
                 }
             }
         }
-        FontArc::try_from_slice(embedded_bytes).expect("Gomulu font yuklenemedi")
+        FontArc::try_from_slice(embedded_bytes).expect("Gömülü font yüklenemedi")
     }
 
     fn load_font_or_fallback(system_path: &str, fallback: &FontArc) -> FontArc {

@@ -25,8 +25,8 @@ fn main() {
     let rc_content = format!(
         r#"1 ICON "{}"
 1 VERSIONINFO
-FILEVERSION 2,0,0,0
-PRODUCTVERSION 2,0,0,0
+FILEVERSION 2,0,1,0
+PRODUCTVERSION 2,0,1,0
 BEGIN
   BLOCK "StringFileInfo"
   BEGIN
@@ -34,11 +34,11 @@ BEGIN
     BEGIN
       VALUE "CompanyName", "maziTunnel"
       VALUE "FileDescription", "maziTunnel"
-      VALUE "FileVersion", "2.0.0"
+      VALUE "FileVersion", "2.0.1"
       VALUE "InternalName", "maziTunnel"
       VALUE "OriginalFilename", "maziTunnel.exe"
       VALUE "ProductName", "maziTunnel"
-      VALUE "ProductVersion", "2.0.0"
+      VALUE "ProductVersion", "2.0.1"
     END
   END
   BLOCK "VarFileInfo"

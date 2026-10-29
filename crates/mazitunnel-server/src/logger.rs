@@ -98,15 +98,15 @@ impl ServerLogger {
         version: &str,
     ) {
         if is_admin {
-            self.log_summary(&format!("{} (Yonetici) baglandi.", username));
+            self.log_summary(&format!("{} (Yönetici) bağlandı.", username));
         } else {
-            self.log_summary(&format!("{} baglandi.", username));
+            self.log_summary(&format!("{} bağlandı.", username));
         }
 
         self.log_detailed(
             "AUTH_OK",
             &format!(
-                "Kullanici: {}, Rol: {}, Adres: {}, Sanal IP: {}, HWID: {}, OS: {}, Surum: {}",
+                "Kullanıcı: {}, Rol: {}, Adres: {}, Sanal IP: {}, HWID: {}, OS: {}, Sürüm: {}",
                 username,
                 if is_admin { "ADMIN" } else { "PLAYER" },
                 peer_addr,
@@ -119,11 +119,11 @@ impl ServerLogger {
     }
 
     pub fn log_game_join(&self, username: &str, peer_addr: &str, stream_id: u32, target_port: u16) {
-        self.log_summary(&format!("{} oyuna giris yapti.", username));
+        self.log_summary(&format!("{} oyuna giriş yaptı.", username));
         self.log_detailed(
             "STREAM_OPEN",
             &format!(
-                "Oyuna giris yapildi. Kullanici: {}, Adres: {}, Stream: {}, Port: {}",
+                "Oyuna giriş yapıldı. Kullanıcı: {}, Adres: {}, Stream: {}, Port: {}",
                 username, peer_addr, stream_id, target_port
             ),
         );
@@ -140,9 +140,9 @@ impl ServerLogger {
     ) {
         let mins = duration_secs / 60;
         let secs = duration_secs % 60;
-        let dur_str = format!("{}dk {}sn", mins, secs);
+        let dur_str = format!("{} dk {} sn", mins, secs);
 
-        self.log_summary(&format!("{} ayrildi (Sure: {}).", username, dur_str));
+        self.log_summary(&format!("{} ayrıldı (Süre: {}).", username, dur_str));
 
         let event = if is_timeout {
             "SESSION_TIMEOUT"
@@ -153,29 +153,29 @@ impl ServerLogger {
         self.log_detailed(
             event,
             &format!(
-                "Kullanici ayrildi: {}, Adres: {}, Sure: {}s, RX: {} bytes, TX: {} bytes",
+                "Kullanıcı ayrıldı: {}, Adres: {}, Süre: {} sn, RX: {} bayt, TX: {} bayt",
                 username, peer_addr, duration_secs, rx, tx
             ),
         );
     }
 
     pub fn log_kick(&self, username: &str, peer_addr: &str, reason: &str) {
-        self.log_summary(&format!("{} sunucudan atildi.", username));
+        self.log_summary(&format!("{} sunucudan atıldı.", username));
         self.log_detailed(
             "KICK",
             &format!(
-                "Kullanici atildi: {}, Adres: {}, Sebep: {}",
+                "Kullanıcı atıldı: {}, Adres: {}, Sebep: {}",
                 username, peer_addr, reason
             ),
         );
     }
 
     pub fn log_ban(&self, username: &str, hwid: &str, reason: &str) {
-        self.log_summary(&format!("{} yasaklandi (Sebep: {}).", username, reason));
+        self.log_summary(&format!("{} yasaklandı (Sebep: {}).", username, reason));
         self.log_detailed(
             "BAN",
             &format!(
-                "Cihaz yasaklandi. Kullanici: {}, HWID: {}, Sebep: {}",
+                "Cihaz yasaklandı. Kullanıcı: {}, HWID: {}, Sebep: {}",
                 username, hwid, reason
             ),
         );
@@ -183,23 +183,23 @@ impl ServerLogger {
 
     pub fn log_banned_attempt(&self, username: &str, hwid: &str, peer_addr: &str) {
         self.log_summary(&format!(
-            "Engellenen giris denemesi ({} - Yasakli cihaz).",
+            "Engellenen giriş denemesi ({} - Yasaklı cihaz).",
             username
         ));
         self.log_detailed(
             "AUTH_FAIL",
             &format!(
-                "Yasakli cihaz giris engellendi. Kullanici: {}, HWID: {}, Adres: {}",
+                "Yasaklı cihaz giriş engellendi. Kullanıcı: {}, HWID: {}, Adres: {}",
                 username, hwid, peer_addr
             ),
         );
     }
 
     pub fn log_key_regenerated(&self, new_key: &str) {
-        self.log_summary("Sunucu baglanti kodu yenilendi.");
+        self.log_summary("Sunucu bağlantı kodu yenilendi.");
         self.log_detailed(
             "KEY_REGENERATE",
-            &format!("Yeni baglanti kodu olusturuldu: {}", new_key),
+            &format!("Yeni bağlantı kodu oluşturuldu: {}", new_key),
         );
     }
 
@@ -207,7 +207,7 @@ impl ServerLogger {
         self.log_detailed(
             "STUN",
             &format!(
-                "Dis ag public endpoint cozuldu: {} (Simetrik NAT: {})",
+                "Dış ağ public endpoint çözüldü: {} (Simetrik NAT: {})",
                 public_endpoint, is_symmetric
             ),
         );

@@ -275,7 +275,7 @@ impl ClientConfig {
         }
 
         let json = serde_json::to_string_pretty(self)
-            .context("Yapilandirma JSON serilestirilemedi")?;
+            .context("Yapılandırma JSON serileştirilemedi")?;
 
         let temp_path = path.with_extension("json.tmp");
         if std::fs::write(&temp_path, json.as_bytes()).is_ok() {
@@ -457,7 +457,7 @@ impl MaziTunnelClientCore {
 
             match check_for_updates(Some(&update_url)).await {
                 Ok(Some(manifest)) => {
-                    info!("Yeni surum bildirimi alindi: v{}", manifest.version);
+                    info!("Yeni sürüm bildirimi alındı: v{}", manifest.version);
                     if let Ok(mut lock) = shared.available_update.lock() {
                         *lock = Some(manifest.clone());
                     }
@@ -470,19 +470,19 @@ impl MaziTunnelClientCore {
                     )
                     .await
                     {
-                        warn!("Guncelleme paketi arka planda indirilemedi: {}", e);
+                        warn!("Güncelleme paketi arka planda indirilemedi: {}", e);
                     } else {
-                        info!("Guncelleme paketi basariyla indirildi: {:?}", temp_path);
+                        info!("Güncelleme paketi başarıyla indirildi: {:?}", temp_path);
                         if !shared.is_connected() {
                             let _ = crate::updater::apply_update_and_restart(&temp_path);
                         }
                     }
                 }
                 Ok(None) => {
-                    debug!("Sistem guncel.");
+                    debug!("Sistem güncel.");
                 }
                 Err(e) => {
-                    debug!("Guncelleme kontrolu atlandi: {}", e);
+                    debug!("Güncelleme kontrolü atlandı: {}", e);
                 }
             }
         });
@@ -499,7 +499,7 @@ impl MaziTunnelClientCore {
 
         let clean_code = normalize_server_key(code_input);
         if clean_code.is_empty() {
-            return Err(anyhow!("Baglanti kodu bos olamaz"));
+            return Err(anyhow!("Bağlantı kodu boş olamaz"));
         }
 
         let admin_str = if !admin_override.trim().is_empty() {
@@ -514,7 +514,7 @@ impl MaziTunnelClientCore {
         }
 
         let (game_port, ssh_port) = {
-            let cfg = self.config.lock().map_err(|_| anyhow!("Ayar kilidi alinamadi"))?;
+            let cfg = self.config.lock().map_err(|_| anyhow!("Ayar kilidi alınamadı"))?;
             (cfg.local_game_port, cfg.local_ssh_port)
         };
 
@@ -550,7 +550,7 @@ impl MaziTunnelClientCore {
         self.shared_state.is_connected.store(false, Ordering::SeqCst);
         self.shared_state.is_connecting.store(false, Ordering::SeqCst);
         self.shared_state.set_ping_ms(0.0);
-        info!("Tunel baglantisi kesildi.");
+        info!("Tünel bağlantısı kesildi.");
     }
 
     pub async fn run_headless_cli(
@@ -558,7 +558,7 @@ impl MaziTunnelClientCore {
         server_code: Option<String>,
         admin_key: Option<String>,
     ) -> Result<()> {
-        info!("maziTunnel CLI Modu Baslatiliyor (v{})...", APP_VERSION);
+        info!("maziTunnel CLI Modu Başlatılıyor (v{})...", APP_VERSION);
 
         let mut config = if let Some(path_str) = config_path {
             let p = PathBuf::from(path_str);
@@ -581,7 +581,7 @@ impl MaziTunnelClientCore {
 
         if config.server_code.trim().is_empty() {
             return Err(anyhow!(
-                "Baglanti kodu belirtilmedi. Lutfen --code <KOD> parametresi verin."
+                "Bağlantı kodu belirtilmedi. Lütfen --code <KOD> parametresi verin."
             ));
         }
 
@@ -589,7 +589,7 @@ impl MaziTunnelClientCore {
         core.start_background_workers();
 
         info!(
-            "Sunucuya baglaniliyor: {} (Oyun Portu: {})",
+            "Sunucuya bağlanılıyor: {} (Oyun Portu: {})",
             config.server_code, config.local_game_port
         );
         core.connect(&config.server_code, &config.admin_key)?;
@@ -597,7 +597,7 @@ impl MaziTunnelClientCore {
         let core_clone = Arc::clone(&core);
         tokio::spawn(async move {
             tokio::signal::ctrl_c().await.ok();
-            info!("Ctrl+C sinyali alindi, kapatiliyor...");
+            info!("Ctrl+C sinyali alındı, kapatılıyor...");
             core_clone.disconnect();
             tokio::time::sleep(Duration::from_millis(300)).await;
             std::process::exit(0);
@@ -609,11 +609,11 @@ impl MaziTunnelClientCore {
             let current = core.shared_state.get_state();
             if current != last_state {
                 match &current {
-                    TunnelState::Signaling => info!("Durum: Sinyal brokeri ile eslesiliyor..."),
+                    TunnelState::Signaling => info!("Durum: Sinyal brokeri ile eşleşiliyor..."),
                     TunnelState::Punching(attempt) => {
-                        info!("Durum: CGNAT delme paketi gonderiliyor (Deneme: {})...", attempt)
+                        info!("Durum: CGNAT delme paketi gönderiliyor (Deneme: {})...", attempt)
                     }
-                    TunnelState::Authenticating => info!("Durum: Sunucu kimligi dogrulaniyor..."),
+                    TunnelState::Authenticating => info!("Durum: Sunucu kimliği doğrulanıyor..."),
                     TunnelState::Connected {
                         role,
                         rtt_ms,
@@ -621,19 +621,19 @@ impl MaziTunnelClientCore {
                         server_name,
                     } => {
                         info!(
-                            "Baglanti basarili! Sunucu: {}, Rol: {:?}, RTT: {:.1}ms, Adres: {}:{}",
+                            "Bağlantı başarılı! Sunucu: {}, Rol: {:?}, RTT: {:.1}ms, Adres: {}:{}",
                             server_name, role, rtt_ms, address, config.local_game_port
                         );
                     }
                     TunnelState::Reconnecting(attempt) => {
-                        warn!("Durum: Yeniden baglaniliyor (Deneme: {})...", attempt)
+                        warn!("Durum: Yeniden bağlanılıyor (Deneme: {})...", attempt)
                     }
                     TunnelState::Error(err) => {
                         error!("Hata: {}", err);
                         break;
                     }
                     TunnelState::Disconnected => {
-                        info!("Baglanti sonlandi.");
+                        info!("Bağlantı sonlandı.");
                         break;
                     }
                 }
@@ -699,7 +699,7 @@ pub async fn run_tunnel_session(
     let (_room_id, room_secret, player_token) = match derive_credentials_from_key(&clean_code) {
         Ok(c) => c,
         Err(e) => {
-            let err = format!("Gecersiz baglanti kodu: {}", e);
+            let err = format!("Geçersiz bağlantı kodu: {}", e);
             shared.set_state(TunnelState::Error(err.clone()));
             shared.set_last_error(Some(err));
             shared.is_connecting.store(false, Ordering::SeqCst);
@@ -720,7 +720,7 @@ pub async fn run_tunnel_session(
     ) {
         Ok(s) => s,
         Err(e) => {
-            let err = format!("UDP soketi olusturulamadi: {}", e);
+            let err = format!("UDP soketi oluşturulamadı: {}", e);
             shared.set_state(TunnelState::Error(err.clone()));
             shared.set_last_error(Some(err));
             shared.is_connecting.store(false, Ordering::SeqCst);
@@ -733,7 +733,7 @@ pub async fn run_tunnel_session(
 
     let bind_addr = SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0);
     if let Err(e) = std_sock.bind(&bind_addr.into()) {
-        let err = format!("UDP soket baglanamadi: {}", e);
+        let err = format!("UDP soket bağlanamadı: {}", e);
         shared.set_state(TunnelState::Error(err.clone()));
         shared.set_last_error(Some(err));
         shared.is_connecting.store(false, Ordering::SeqCst);
@@ -745,7 +745,7 @@ pub async fn run_tunnel_session(
     let udp_socket = match UdpSocket::from_std(std_sock.into()) {
         Ok(s) => Arc::new(s),
         Err(e) => {
-            let err = format!("Tokio UDP soket olusturulamadi: {}", e);
+            let err = format!("Tokio UDP soket oluşturulamadı: {}", e);
             shared.set_state(TunnelState::Error(err.clone()));
             shared.set_last_error(Some(err));
             shared.is_connecting.store(false, Ordering::SeqCst);
@@ -757,8 +757,8 @@ pub async fn run_tunnel_session(
 
     let lan_peer_opt = mazitunnel_core::nat_traversal::discover_lan_server(&udp_socket, &clean_code, 25566).await;
 
-    let (peer_addr, my_public_ip) = if let Some(lan_peer) = lan_peer_opt {
-        info!("Yerel agda (LAN) sunucu bulundu: {}", lan_peer);
+    let (mut peer_addr, my_public_ip) = if let Some(lan_peer) = lan_peer_opt {
+        info!("Yerel ağda (LAN) sunucu bulundu: {}", lan_peer);
         (lan_peer, mazitunnel_core::nat_traversal::get_local_lan_ip())
     } else {
         let my_ep = discover_stun_endpoint(&udp_socket).await.unwrap_or(StunEndpoint::new(
@@ -773,7 +773,7 @@ pub async fn run_tunnel_session(
 
         let candidates = rendezvous_client_full(&clean_code, &my_ep, local_port).await;
         if candidates.is_empty() {
-            let err = "Sunucu cevrimdisi veya baglanti anahtari gecersiz.".to_string();
+            let err = "Sunucu çevrim dışı veya bağlantı anahtarı geçersiz.".to_string();
             shared.set_state(TunnelState::Error(err.clone()));
             shared.set_last_error(Some(err));
             shared.is_connecting.store(false, Ordering::SeqCst);
@@ -882,6 +882,16 @@ pub async fn run_tunnel_session(
                     let pkt = &recv_buf[..len];
                     if let Some(plain) = room_cipher.decrypt(pkt) {
                         if plain.starts_with(b"P2P_TUN_PUNCH") || plain.starts_with(b"MAZITUN_PUNCH") {
+                            if plain.starts_with(b"P2P_TUN_PUNCH_SYN") || plain.starts_with(b"MAZITUN_PUNCH_SYN") {
+                                let ack = room_cipher.encrypt(b"P2P_TUN_PUNCH_ACK");
+                                let _ = udp_socket.send_to(&ack, src).await;
+                            }
+                            if (!mazitunnel_core::nat_traversal::is_lan_addr(src.ip())
+                                || mazitunnel_core::nat_traversal::is_lan_addr(peer_addr.ip()))
+                                && src != peer_addr
+                            {
+                                peer_addr = src;
+                            }
                             continue;
                         }
                         if plain.starts_with(b"P2P_TUN_OOB_PING:") {
@@ -889,6 +899,9 @@ pub async fn run_tunnel_session(
                         }
 
                         if plain.len() >= 24 {
+                            if src != peer_addr {
+                                peer_addr = src;
+                            }
                             let (acks, chunks) = {
                                 let mut k = kcp.lock().unwrap();
                                 let now_ms = k.now_ms();
@@ -951,7 +964,7 @@ pub async fn run_tunnel_session(
                                     break;
                                 } else if f.cmd == Cmd::AuthFail {
                                     let reason = String::from_utf8_lossy(&f.payload).to_string();
-                                    let err = format!("Kimlik dogrulama reddedildi: {}", reason);
+                                    let err = format!("Kimlik doğrulama reddedildi: {}", reason);
                                     shared.set_state(TunnelState::Error(err.clone()));
                                     shared.set_last_error(Some(err));
                                     shared.is_connecting.store(false, Ordering::SeqCst);
@@ -976,7 +989,7 @@ pub async fn run_tunnel_session(
     let session_cipher = match session_cipher {
         Some(sc) => sc,
         None => {
-            let err = "Kimlik dogrulama zaman asimina ugradi.".to_string();
+            let err = "Kimlik doğrulama zaman aşımına uğradı.".to_string();
             shared.set_state(TunnelState::Error(err.clone()));
             shared.set_last_error(Some(err));
             shared.is_connecting.store(false, Ordering::SeqCst);
@@ -1049,7 +1062,7 @@ pub async fn run_tunnel_session(
     local_resolver.set_tunnel_active(true);
 
     info!(
-        "Tunel baglantisi aktif! Rol: {:?}, Adres: {}:{}",
+        "Tünel bağlantısı aktif! Rol: {:?}, Adres: {}:{}",
         assigned_role, assigned_address, assigned_port
     );
 
@@ -1074,7 +1087,7 @@ pub async fn run_tunnel_session(
         let nsid = Arc::clone(&next_stream_id);
         let handle = tokio::spawn(async move {
             if let Ok(listener) = TcpListener::bind(format!("127.0.0.1:{}", listen_port)).await {
-                info!("Yerel TCP dinleyici baslatildi: 127.0.0.1:{} -> :{}", listen_port, target_port);
+                info!("Yerel TCP dinleyici başlatıldı: 127.0.0.1:{} -> :{}", listen_port, target_port);
                 while let Ok((socket, _)) = listener.accept().await {
                     let _ = socket.set_nodelay(true);
                     let sid = nsid.fetch_add(1, Ordering::SeqCst);
@@ -1147,7 +1160,7 @@ pub async fn run_tunnel_session(
 
     loop {
         if *cancel_rx.borrow() {
-            info!("Mux dongusu iptal sinyali aldi.");
+            info!("Mux döngüsü iptal sinyali aldı.");
             let disc_frame = Frame::new(Cmd::Disconnect, 0, 0, Bytes::new());
             let dgrams = {
                 let mut k = kcp.lock().unwrap();
@@ -1299,7 +1312,7 @@ pub async fn run_tunnel_session(
                                                 active_streams.lock().unwrap().remove(&f.stream_id);
                                             }
                                             Cmd::Disconnect => {
-                                                info!("Sunucu baglantiyi sonlandirdi.");
+                                                info!("Sunucu bağlantıyı sonlandırdı.");
                                                 break;
                                             }
                                             Cmd::Ping => {
@@ -1315,7 +1328,7 @@ pub async fn run_tunnel_session(
                         }
                     }
                     Err(e) => {
-                        debug!("UDP alma hatasi: {}", e);
+                        debug!("UDP alma hatası: {}", e);
                     }
                 }
             }
@@ -1335,7 +1348,7 @@ pub async fn run_tunnel_session(
 
             _ = oob_ping_interval.tick() => {
                 if last_rx.elapsed() > Duration::from_secs(25) {
-                    warn!("Sunucu yanit vermiyor (25sn zaman asimi), baglanti kapatiliyor.");
+                    warn!("Sunucu yanıt vermiyor (25 sn zaman aşımı), bağlantı kapatılıyor.");
                     break;
                 }
                 let now_ts = SystemTime::now()

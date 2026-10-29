@@ -77,7 +77,7 @@ impl BanManager {
                 let username = val.get("username").and_then(|v| v.as_str()).unwrap_or("Bilinmeyen").to_string();
                 let hostname = val.get("hostname").or_else(|| val.get("computer_name")).and_then(|v| v.as_str()).unwrap_or("-").to_string();
                 let ip = val.get("ip").and_then(|v| v.as_str()).unwrap_or("-").to_string();
-                let reason = val.get("reason").and_then(|v| v.as_str()).unwrap_or("Yonetici tarafindan yasaklandi").to_string();
+                let reason = val.get("reason").and_then(|v| v.as_str()).unwrap_or("Yönetici tarafından yasaklandı").to_string();
                 let banned_at = val.get("banned_at").and_then(|v| v.as_str()).unwrap_or("").to_string();
                 let hwid_details = val.get("hwid_details").cloned().unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
 
@@ -240,7 +240,7 @@ impl BanManager {
             username: if username.trim().is_empty() { "Bilinmeyen".to_string() } else { username.trim().to_string() },
             hostname: if hostname.trim().is_empty() { "-".to_string() } else { hostname.trim().to_string() },
             ip: if ip.trim().is_empty() { "-".to_string() } else { ip.trim().to_string() },
-            reason: if reason.trim().is_empty() { "Yonetici tarafindan yasaklandi".to_string() } else { reason.trim().to_string() },
+            reason: if reason.trim().is_empty() { "Yönetici tarafından yasaklandı".to_string() } else { reason.trim().to_string() },
             banned_at: format_current_time(),
             hwid_details,
         };

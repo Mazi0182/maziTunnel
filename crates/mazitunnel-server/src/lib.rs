@@ -227,13 +227,13 @@ mod tests {
         assert_eq!(detailed.len(), 8);
 
         // Verify summary format
-        assert!(summary[0].contains("Mert baglandi."));
-        assert!(summary[1].contains("Mert oyuna giris yapti."));
-        assert!(summary[2].contains("Mert ayrildi (Sure: 2dk 15sn)."));
-        assert!(summary[3].contains("TrollUser sunucudan atildi."));
-        assert!(summary[4].contains("CheaterUser yasaklandi (Sebep: Wallhack)."));
-        assert!(summary[5].contains("Engellenen giris denemesi (CheaterUser - Yasakli cihaz)."));
-        assert!(summary[6].contains("Sunucu baglanti kodu yenilendi."));
+        assert!(summary[0].contains("Mert bağlandı."));
+        assert!(summary[1].contains("Mert oyuna giriş yaptı."));
+        assert!(summary[2].contains("Mert ayrıldı (Süre: 2 dk 15 sn)."));
+        assert!(summary[3].contains("TrollUser sunucudan atıldı."));
+        assert!(summary[4].contains("CheaterUser yasaklandı (Sebep: Wallhack)."));
+        assert!(summary[5].contains("Engellenen giriş denemesi (CheaterUser - Yasaklı cihaz)."));
+        assert!(summary[6].contains("Sunucu bağlantı kodu yenilendi."));
 
         // Verify detailed format
         assert!(detailed[0].contains("[AUTH_OK]"));
@@ -249,7 +249,7 @@ mod tests {
         let summary_content = std::fs::read_to_string(temp_dir.join("summary.log")).expect("summary.log missing");
         let detailed_content = std::fs::read_to_string(temp_dir.join("detailed.log")).expect("detailed.log missing");
 
-        assert!(summary_content.contains("Mert baglandi."));
+        assert!(summary_content.contains("Mert bağlandı."));
         assert!(detailed_content.contains("[AUTH_OK]"));
 
         let _ = std::fs::remove_dir_all(temp_dir);

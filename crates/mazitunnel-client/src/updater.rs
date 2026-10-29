@@ -6,7 +6,7 @@ use std::process::Command;
 use std::time::Duration;
 use tracing::info;
 
-pub const APP_VERSION: &str = "2.0.0";
+pub const APP_VERSION: &str = "2.0.1";
 pub const DEFAULT_UPDATE_URL: &str = "https://updates.mazidev.xyz/version.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -126,7 +126,7 @@ async fn fetch_http_raw(url: &str) -> anyhow::Result<Vec<u8>> {
         tokio::net::TcpStream::connect(&addr_str),
     )
     .await
-    .context("TCP baglanti zaman asimi")??;
+    .context("TCP bağlantı zaman aşımı")??;
 
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -149,22 +149,22 @@ async fn fetch_http_raw(url: &str) -> anyhow::Result<Vec<u8>> {
 
 pub async fn check_for_updates(update_url: Option<&str>) -> anyhow::Result<Option<UpdateManifest>> {
     let url = update_url.unwrap_or(DEFAULT_UPDATE_URL);
-    info!("Guncelleme kontrol ediliyor: {}", url);
+    info!("Güncelleme kontrol ediliyor: {}", url);
 
     let bytes = fetch_url_bytes(url).await?;
-    let text = std::str::from_utf8(&bytes).context("Guncelleme yaniti UTF-8 formatinda degil")?;
+    let text = std::str::from_utf8(&bytes).context("Güncelleme yanıtı UTF-8 formatında değil")?;
 
     let manifest: UpdateManifest = serde_json::from_str(text)
-        .context("Guncelleme bildirimi (manifest) JSON olarak ayristirilamadi")?;
+        .context("Güncelleme bildirimi (manifest) JSON olarak ayrıştırılamadı")?;
 
     if is_version_newer(&manifest.version, APP_VERSION) {
         info!(
-            "Yeni guncelleme mevcut: v{} (Mevcut: v{})",
+            "Yeni güncelleme mevcut: v{} (Mevcut: v{})",
             manifest.version, APP_VERSION
         );
         Ok(Some(manifest))
     } else {
-        info!("Uygulama guncel (v{})", APP_VERSION);
+        info!("Uygulama güncel (v{})", APP_VERSION);
         Ok(None)
     }
 }
@@ -174,7 +174,7 @@ pub async fn download_update_installer(
     target_path: &Path,
     expected_sha256: Option<&str>,
 ) -> anyhow::Result<()> {
-    info!("Guncelleme paketi indiriliyor: {} -> {:?}", url, target_path);
+    info!("Güncelleme paketi indiriliyor: {} -> {:?}", url, target_path);
 
     let bytes = fetch_url_bytes(url).await?;
 
@@ -185,12 +185,12 @@ pub async fn download_update_installer(
 
         if !actual_hash.eq_ignore_ascii_case(expected_hash.trim()) {
             return Err(anyhow!(
-                "SHA256 dogrulamasi basarisiz! Beklenen: {}, Hesaplanan: {}",
+                "SHA256 doğrulaması başarısız! Beklenen: {}, Hesaplanan: {}",
                 expected_hash,
                 actual_hash
             ));
         }
-        info!("SHA256 dogrulamasi basarili: {}", actual_hash);
+        info!("SHA256 doğrulaması başarılı: {}", actual_hash);
     }
 
     if let Some(parent) = target_path.parent() {
@@ -198,18 +198,18 @@ pub async fn download_update_installer(
     }
 
     std::fs::write(target_path, &bytes)
-        .with_context(|| format!("Guncelleme dosyasi diske yazilamadi: {:?}", target_path))?;
+        .with_context(|| format!("Güncelleme dosyası diske yazılamadı: {:?}", target_path))?;
 
-    info!("Guncelleme paketi basariyla kaydedildi: {:?}", target_path);
+    info!("Güncelleme paketi başarıyla kaydedildi: {:?}", target_path);
     Ok(())
 }
 
 pub fn apply_update_and_restart(installer_path: &Path) -> anyhow::Result<()> {
     if !installer_path.exists() {
-        return Err(anyhow!("Kurulum dosyasi bulunamadi: {:?}", installer_path));
+        return Err(anyhow!("Kurulum dosyası bulunamadı: {:?}", installer_path));
     }
 
-    info!("Guncelleme baslatiliyor: {:?}", installer_path);
+    info!("Güncelleme başlatılıyor: {:?}", installer_path);
 
     #[cfg(target_os = "windows")]
     {
@@ -218,7 +218,7 @@ pub fn apply_update_and_restart(installer_path: &Path) -> anyhow::Result<()> {
         cmd.creation_flags(0x08000000);
         cmd.args(["--silent", "--updated"])
             .spawn()
-            .with_context(|| format!("Kurulum paketi calistirilamadi: {:?}", installer_path))?;
+            .with_context(|| format!("Kurulum paketi çalıştırılamadı: {:?}", installer_path))?;
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -230,10 +230,10 @@ pub fn apply_update_and_restart(installer_path: &Path) -> anyhow::Result<()> {
         Command::new(installer_path)
             .args(["--silent", "--updated"])
             .spawn()
-            .with_context(|| format!("Kurulum paketi calistirilamadi: {:?}", installer_path))?;
+            .with_context(|| format!("Kurulum paketi çalıştırılamadı: {:?}", installer_path))?;
     }
 
-    info!("Guncelleyici baslatildi, mevcut surec sonlandiriliyor.");
+    info!("Güncelleyici başlatıldı, mevcut süreç sonlandırılıyor.");
     std::process::exit(0);
 }
 

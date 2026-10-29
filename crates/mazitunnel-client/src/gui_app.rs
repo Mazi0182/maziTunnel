@@ -54,10 +54,10 @@ static APP_ICON_28: &[u8] = include_bytes!("../../../assets/app_icon_28.rgba");
 static APP_ICON_48: &[u8] = include_bytes!("../../../assets/app_icon_48.rgba");
 
 static CHANGELOG_NOTES: &[&str] = &[
-    "• Saf Rust çekirdeği ve çoklu KCP motoruna geçildi.",
-    "• VPN dostu dinamik .local yakalayıcı eklendi.",
-    "• Kesin ağ kopma tespiti (8sn) ve otomatik bağlantı kurtarma sağlandı.",
-    "• Monokrom arayüz, 180Hz akıcı geçişler ve tam sistem tepsisi menüsü entegre edildi.",
+    "• Bağlantı anahtarı yapıştırma ve otomatik tireleme (XXXX-XXXX-XXXX) eklendi.",
+    "• CGNAT STUN periyodik yenileme ve dinamik uç nokta geçişi sağlandı.",
+    "• Proaktif 120ms şifreli UDP delme ile doğrudan bağlantı kararlılığı artırıldı.",
+    "• Tüm arayüz ve log bildirimlerinde Türkçe karakterler standartlaştırıldı.",
 ];
 
 #[cfg(not(windows))]
@@ -575,10 +575,10 @@ impl GuiAppState {
         }
 
         let show_modal = is_updated;
-        if config.last_seen_version != "2.0.0" {
-            config.last_seen_version = "2.0.0".to_string();
+        if config.last_seen_version != "2.0.1" {
+            config.last_seen_version = "2.0.1".to_string();
             let mut c = core.config.lock().unwrap();
-            c.last_seen_version = "2.0.0".to_string();
+            c.last_seen_version = "2.0.1".to_string();
             let _ = c.save();
             drop(c);
             save_config(&config);
@@ -856,6 +856,54 @@ impl GuiAppState {
             }
             ActiveInput::None => {}
         }
+    }
+
+    fn reformat_server_code(&mut self) {
+        if self.active_input != ActiveInput::ServerCode {
+            return;
+        }
+        let chars: Vec<char> = self.edit_code.chars().collect();
+        let cur = self.input_cursor.min(chars.len());
+        let anc = self.input_sel_anchor.min(chars.len());
+
+        let alnum_before_cur = chars[..cur].iter().filter(|c| c.is_ascii_alphanumeric()).count();
+        let alnum_before_anc = chars[..anc].iter().filter(|c| c.is_ascii_alphanumeric()).count();
+
+        let clean: Vec<char> = chars
+            .into_iter()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .map(|c| c.to_ascii_uppercase())
+            .take(12)
+            .collect();
+
+        let mut formatted = String::with_capacity(14);
+        let mut new_cur = 0usize;
+        let mut new_anc = 0usize;
+        let mut seen_alnum = 0usize;
+
+        for (i, ch) in clean.iter().enumerate() {
+            if i > 0 && i % 4 == 0 {
+                formatted.push('-');
+            }
+            if seen_alnum == alnum_before_cur {
+                new_cur = formatted.chars().count();
+            }
+            if seen_alnum == alnum_before_anc {
+                new_anc = formatted.chars().count();
+            }
+            formatted.push(*ch);
+            seen_alnum += 1;
+        }
+        if alnum_before_cur >= seen_alnum {
+            new_cur = formatted.chars().count();
+        }
+        if alnum_before_anc >= seen_alnum {
+            new_anc = formatted.chars().count();
+        }
+
+        self.edit_code = formatted;
+        self.input_cursor = new_cur;
+        self.input_sel_anchor = new_anc;
     }
 
     pub fn is_animating(&self) -> bool {
@@ -1765,8 +1813,8 @@ impl GuiAppState {
         self.canvas.draw_text_centered_semibold(13.5, btn_edit_x + btn_edit_w * 0.5, btn_edit_y + btn_edit_h * 0.5, "Değiştir", edit_fg);
 
         // 4. Footer (Sag alt kose)
-        let (vw, _) = self.canvas.measure_text_semibold(11.5, "v2.0.0");
-        self.canvas.draw_text_semibold(11.5, 368.0 - vw, 464.0, "v2.0.0", pal.text_muted);
+        let (vw, _) = self.canvas.measure_text_semibold(11.5, "v2.0.1");
+        self.canvas.draw_text_semibold(11.5, 368.0 - vw, 464.0, "v2.0.1", pal.text_muted);
     }
 
     // --- SAYFA 2: SUNUCU AYARLARI ---
@@ -2100,8 +2148,8 @@ impl GuiAppState {
         }
 
         // 4. Footer (Sag alt kose)
-        let (vw, _) = self.canvas.measure_text_semibold(11.5, "v2.0.0");
-        self.canvas.draw_text_semibold(11.5, 368.0 - vw, 464.0, "v2.0.0", pal.text_muted);
+        let (vw, _) = self.canvas.measure_text_semibold(11.5, "v2.0.1");
+        self.canvas.draw_text_semibold(11.5, 368.0 - vw, 464.0, "v2.0.1", pal.text_muted);
     }
 
     // --- GUNCELLEME MODALI (v2.0.0) ---
@@ -2140,7 +2188,7 @@ impl GuiAppState {
         // Ikon ve Basliklar
         self.canvas.draw_rgba_icon(40, (card_y + 20.0) as i32, 28, 28, APP_ICON_28, ease_t);
         self.canvas.draw_text(true, 19.5, 76.0, card_y + 18.0, "Güncelleme Tamamlandı", pal.text_primary);
-        self.canvas.draw_text(true, 14.5, 76.0, card_y + 42.0, "v2.0.0 Sürüm Notları", pal.text_secondary);
+        self.canvas.draw_text(true, 14.5, 76.0, card_y + 42.0, "v2.0.1 Sürüm Notları", pal.text_secondary);
 
         // Ayirici cizgi
         self.canvas.draw_line(card_x + 18.0, card_y + 70.0, card_x + card_w - 18.0, card_y + 70.0, 1.0, pal.card_border);
@@ -2479,9 +2527,9 @@ impl GuiAppState {
 
     pub fn close_update_modal(&mut self) {
         self.update_modal_closing = true;
-        self.config.last_seen_version = "2.0.0".to_string();
+        self.config.last_seen_version = "2.0.1".to_string();
         save_config(&self.config);
-        self.core.config.lock().unwrap().last_seen_version = "2.0.0".to_string();
+        self.core.config.lock().unwrap().last_seen_version = "2.0.1".to_string();
         let _ = self.core.config.lock().unwrap().save();
     }
 
@@ -2599,76 +2647,6 @@ impl GuiAppState {
             (c.min(a), c.max(a))
         };
 
-        // Ctrl+A (Tumunu Sec)
-        if ch == '\x01' {
-            self.input_sel_anchor = 0;
-            self.input_cursor = total_chars;
-            self.input_select_all = false;
-            return;
-        }
-
-        // Ctrl+C (Kopyala)
-        if ch == '\x03' {
-            #[cfg(windows)]
-            {
-                if sel_min < sel_max {
-                    if let Some(txt) = self.get_active_input_slice(sel_min, sel_max) {
-                        copy_to_clipboard(hwnd as _, &txt);
-                    }
-                } else if let Some(txt) = self.get_active_input_text() {
-                    if !txt.is_empty() {
-                        copy_to_clipboard(hwnd as _, txt);
-                    }
-                }
-            }
-            return;
-        }
-
-        // Ctrl+X (Kes)
-        if ch == '\x18' {
-            #[cfg(windows)]
-            {
-                if sel_min < sel_max {
-                    if let Some(txt) = self.get_active_input_slice(sel_min, sel_max) {
-                        copy_to_clipboard(hwnd as _, &txt);
-                    }
-                    self.delete_active_char_range(sel_min, sel_max);
-                    self.input_cursor = sel_min;
-                    self.input_sel_anchor = sel_min;
-                    self.input_select_all = false;
-                } else if let Some(txt) = self.get_active_input_text() {
-                    if !txt.is_empty() {
-                        copy_to_clipboard(hwnd as _, txt);
-                    }
-                    self.clear_active_input();
-                }
-            }
-            return;
-        }
-
-        // Ctrl+V (Yapistir)
-        if ch == '\x16' {
-            #[cfg(windows)]
-            if let Some(text) = paste_from_clipboard(hwnd as _) {
-                if sel_min < sel_max {
-                    self.delete_active_char_range(sel_min, sel_max);
-                    self.input_cursor = sel_min;
-                    self.input_sel_anchor = sel_min;
-                    self.input_select_all = false;
-                }
-                let mut count = 0;
-                for c in text.chars() {
-                    if !c.is_control() {
-                        self.insert_active_char(self.input_cursor + count, c);
-                        count += 1;
-                    }
-                }
-                self.input_cursor += count;
-                self.input_sel_anchor = self.input_cursor;
-            }
-            return;
-        }
-
         // Backspace (\x08) veya Ctrl+Backspace (\x7f)
         if ch == '\x08' || ch == '\x7f' {
             if ch == '\x7f' {
@@ -2680,15 +2658,31 @@ impl GuiAppState {
                 } else {
                     self.clear_active_input();
                 }
+                self.reformat_server_code();
             } else if sel_min < sel_max {
                 self.delete_active_char_range(sel_min, sel_max);
                 self.input_cursor = sel_min;
                 self.input_sel_anchor = sel_min;
                 self.input_select_all = false;
+                self.reformat_server_code();
             } else if self.input_cursor > 0 {
-                self.delete_active_char_range(self.input_cursor - 1, self.input_cursor);
-                self.input_cursor -= 1;
-                self.input_sel_anchor = self.input_cursor;
+                if self.active_input == ActiveInput::ServerCode {
+                    let chars: Vec<char> = self.edit_code.chars().collect();
+                    if self.input_cursor <= chars.len() && self.input_cursor > 0 && chars[self.input_cursor - 1] == '-' && self.input_cursor >= 2 {
+                        self.delete_active_char_range(self.input_cursor - 2, self.input_cursor);
+                        self.input_cursor -= 2;
+                        self.input_sel_anchor = self.input_cursor;
+                    } else {
+                        self.delete_active_char_range(self.input_cursor - 1, self.input_cursor);
+                        self.input_cursor -= 1;
+                        self.input_sel_anchor = self.input_cursor;
+                    }
+                    self.reformat_server_code();
+                } else {
+                    self.delete_active_char_range(self.input_cursor - 1, self.input_cursor);
+                    self.input_cursor -= 1;
+                    self.input_sel_anchor = self.input_cursor;
+                }
                 self.input_select_all = false;
             }
             self.cursor_blink = 0.5;
@@ -2707,6 +2701,9 @@ impl GuiAppState {
 
         // Karakter Ekleme
         if !ch.is_control() {
+            if self.active_input == ActiveInput::ServerCode && !ch.is_ascii_alphanumeric() {
+                return;
+            }
             if sel_min < sel_max {
                 self.delete_active_char_range(sel_min, sel_max);
                 self.input_cursor = sel_min;
@@ -2716,6 +2713,7 @@ impl GuiAppState {
             self.insert_active_char(self.input_cursor, ch);
             self.input_cursor += 1;
             self.input_sel_anchor = self.input_cursor;
+            self.reformat_server_code();
             self.cursor_blink = 0.5;
         }
     }
@@ -2805,9 +2803,20 @@ impl GuiAppState {
                 self.input_sel_anchor = sel_min;
                 self.input_select_all = false;
             } else if self.input_cursor < total_chars {
-                self.delete_active_char_range(self.input_cursor, self.input_cursor + 1);
+                if self.active_input == ActiveInput::ServerCode {
+                    let chars: Vec<char> = self.edit_code.chars().collect();
+                    if self.input_cursor < chars.len() && chars[self.input_cursor] == '-' {
+                        let end = (self.input_cursor + 2).min(total_chars);
+                        self.delete_active_char_range(self.input_cursor, end);
+                    } else {
+                        self.delete_active_char_range(self.input_cursor, self.input_cursor + 1);
+                    }
+                } else {
+                    self.delete_active_char_range(self.input_cursor, self.input_cursor + 1);
+                }
                 self.input_sel_anchor = self.input_cursor;
             }
+            self.reformat_server_code();
             self.cursor_blink = 0.5;
             return;
         }
@@ -2850,25 +2859,61 @@ impl GuiAppState {
                         }
                         self.clear_active_input();
                     }
+                    self.reformat_server_code();
                 }
                 // 'V' (0x56)
                 else if key_code == 0x56 {
                     if let Some(text) = paste_from_clipboard(hwnd as _) {
-                        if sel_min < sel_max {
-                            self.delete_active_char_range(sel_min, sel_max);
-                            self.input_cursor = sel_min;
-                            self.input_sel_anchor = sel_min;
-                            self.input_select_all = false;
-                        }
-                        let mut count = 0;
-                        for c in text.chars() {
-                            if !c.is_control() {
-                                self.insert_active_char(self.input_cursor + count, c);
-                                count += 1;
+                        if self.active_input == ActiveInput::ServerCode {
+                            let clean_alnum: String = text
+                                .chars()
+                                .filter(|c| c.is_ascii_alphanumeric())
+                                .map(|c| c.to_ascii_uppercase())
+                                .take(12)
+                                .collect();
+                            if clean_alnum.len() == 12 {
+                                self.edit_code = format!(
+                                    "{}-{}-{}",
+                                    &clean_alnum[0..4],
+                                    &clean_alnum[4..8],
+                                    &clean_alnum[8..12]
+                                );
+                                self.input_cursor = 14;
+                                self.input_sel_anchor = 14;
+                                self.input_select_all = false;
+                            } else if !clean_alnum.is_empty() {
+                                if sel_min < sel_max {
+                                    self.delete_active_char_range(sel_min, sel_max);
+                                    self.input_cursor = sel_min;
+                                    self.input_sel_anchor = sel_min;
+                                    self.input_select_all = false;
+                                }
+                                let mut count = 0;
+                                for c in clean_alnum.chars() {
+                                    self.insert_active_char(self.input_cursor + count, c);
+                                    count += 1;
+                                }
+                                self.input_cursor += count;
+                                self.input_sel_anchor = self.input_cursor;
+                                self.reformat_server_code();
                             }
+                        } else {
+                            if sel_min < sel_max {
+                                self.delete_active_char_range(sel_min, sel_max);
+                                self.input_cursor = sel_min;
+                                self.input_sel_anchor = sel_min;
+                                self.input_select_all = false;
+                            }
+                            let mut count = 0;
+                            for c in text.chars() {
+                                if !c.is_control() {
+                                    self.insert_active_char(self.input_cursor + count, c);
+                                    count += 1;
+                                }
+                            }
+                            self.input_cursor += count;
+                            self.input_sel_anchor = self.input_cursor;
                         }
-                        self.input_cursor += count;
-                        self.input_sel_anchor = self.input_cursor;
                     }
                 }
             }
@@ -3241,13 +3286,13 @@ fn render_tray_popup(popup: &mut TrayPopupState, main: &GuiAppState) {
         .canvas
         .draw_text_weight(FontWeight::Bold, 12.5, 34.0, 17.5, "maziTunnel", pal.text_primary);
 
-    let (vw, _) = popup.canvas.measure_text_semibold(10.5, "v2.0.0");
+    let (vw, _) = popup.canvas.measure_text_semibold(10.5, "v2.0.1");
     popup.canvas.draw_text_weight(
         FontWeight::Semibold,
         10.5,
         234.0 - vw,
         18.5,
-        "v2.0.0",
+        "v2.0.1",
         pal.text_muted,
     );
 
@@ -4550,6 +4595,6 @@ pub fn run_gui(core: Arc<MaziTunnelClientCore>, is_updated: bool) {
     #[cfg(not(windows))]
     {
         let _ = (core, is_updated);
-        println!("maziTunnel GUI yalnizca Windows platformunda calisir. Bassiz calistirma icin --cli argumanini kullanin.");
+        println!("maziTunnel GUI yalnızca Windows platformunda çalışır. Başsız çalıştırma için --cli argümanını kullanın.");
     }
 }

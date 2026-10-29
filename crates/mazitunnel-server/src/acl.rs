@@ -87,7 +87,7 @@ impl ServerAcl {
 
         // 1. Replay attack protection with 10s idempotent retry window
         if !client_nonce.is_empty() {
-            let mut nonces = self.used_nonces.lock().map_err(|_| "Sistem kilidi hatasi")?;
+            let mut nonces = self.used_nonces.lock().map_err(|_| "Sistem kilidi hatası")?;
             let now = Instant::now();
 
             if nonces.len() > 1000 {
@@ -99,7 +99,7 @@ impl ServerAcl {
                 if elapsed <= Duration::from_secs(10) && (seen_hwid.is_empty() || seen_hwid == hwid) {
                     // Idempotent retry allowed within 10s window
                 } else {
-                    return Err("REPLAY_DETECTED: Tekrar eden baglanti istegi engellendi.".to_string());
+                    return Err("REPLAY_DETECTED: Tekrar eden bağlantı isteği engellendi.".to_string());
                 }
             } else {
                 nonces.insert(client_nonce.to_string(), (now, hwid.to_string()));
@@ -115,7 +115,7 @@ impl ServerAcl {
             }
 
             if !hwid.is_empty() && hwid != "N/A" && (hwid.len() < 12 || !hwid.contains("HWID")) {
-                return Err("INVALID_HWID: Gecersiz donanim kimligi (HWID) formati.".to_string());
+                return Err("INVALID_HWID: Geçersiz donanım kimliği (HWID) formatı.".to_string());
             }
         }
 
@@ -160,7 +160,7 @@ impl ServerAcl {
             }
         }
 
-        Err("AUTH_FAILED: Baglanti anahtari veya yetkilendirme basarisiz.".to_string())
+        Err("AUTH_FAILED: Bağlantı anahtarı veya yetkilendirme başarısız.".to_string())
     }
 
     pub fn is_port_allowed(&self, role: Role, target_port: u16) -> bool {

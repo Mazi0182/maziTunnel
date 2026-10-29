@@ -75,7 +75,7 @@ impl LocalDomainInterceptor {
 
     pub fn set_active_domain(&self, domain: &str) {
         let normalized = Self::normalize_domain(domain);
-        info!("Yerel isim cozucu aktif alan adi guncellendi: {}", normalized);
+        info!("Yerel isim çözücü aktif alan adı güncellendi: {}", normalized);
         if let Ok(mut lock) = self.active_domain.write() {
             *lock = normalized;
         }
@@ -199,12 +199,12 @@ impl LocalDomainInterceptor {
         let tokio_sock = match tokio::net::UdpSocket::from_std(socket.into()) {
             Ok(s) => s,
             Err(e) => {
-                warn!("mDNS tokio soket donusumu basarisiz: {}", e);
+                warn!("mDNS tokio soket dönüşümü başarısız: {}", e);
                 return;
             }
         };
 
-        info!("mDNS dinleyici baslatildi (Port 5353, Multicast: 224.0.0.251)");
+        info!("mDNS dinleyici başlatıldı (Port 5353, Multicast: 224.0.0.251)");
         let mut buf = [0u8; 4096];
 
         loop {
@@ -213,7 +213,7 @@ impl LocalDomainInterceptor {
                     if let Some(query) = parse_dns_query(&buf[..len], true) {
                         if self.matches_query(&query.qname) {
                             debug!(
-                                "mDNS eslesmesi: {} -> 127.0.0.1 (Kaynak: {})",
+                                "mDNS eşleşmesi: {} -> 127.0.0.1 (Kaynak: {})",
                                 query.qname, src_addr
                             );
                             let is_ipv6 = query.qtype == 28;
@@ -229,7 +229,7 @@ impl LocalDomainInterceptor {
                     }
                 }
                 Err(e) => {
-                    debug!("mDNS okuma hatasi: {}", e);
+                    debug!("mDNS okuma hatası: {}", e);
                     tokio::time::sleep(Duration::from_millis(50)).await;
                 }
             }
@@ -240,7 +240,7 @@ impl LocalDomainInterceptor {
         let socket = match create_multicast_socket(LLMNR_PORT, LLMNR_IPV4) {
             Ok(s) => s,
             Err(e) => {
-                warn!("LLMNR soketi acilamadi (Port 5355 mesgul olabilir): {}", e);
+                warn!("LLMNR soketi açılamadı (Port 5355 meşgul olabilir): {}", e);
                 return;
             }
         };
@@ -248,12 +248,12 @@ impl LocalDomainInterceptor {
         let tokio_sock = match tokio::net::UdpSocket::from_std(socket.into()) {
             Ok(s) => s,
             Err(e) => {
-                warn!("LLMNR tokio soket donusumu basarisiz: {}", e);
+                warn!("LLMNR tokio soket dönüşümü başarısız: {}", e);
                 return;
             }
         };
 
-        info!("LLMNR dinleyici baslatildi (Port 5355, Multicast: 224.0.0.252)");
+        info!("LLMNR dinleyici başlatıldı (Port 5355, Multicast: 224.0.0.252)");
         let mut buf = [0u8; 4096];
 
         loop {
@@ -262,7 +262,7 @@ impl LocalDomainInterceptor {
                     if let Some(query) = parse_dns_query(&buf[..len], false) {
                         if self.matches_query(&query.qname) {
                             debug!(
-                                "LLMNR eslesmesi: {} -> 127.0.0.1 (Kaynak: {})",
+                                "LLMNR eşleşmesi: {} -> 127.0.0.1 (Kaynak: {})",
                                 query.qname, src_addr
                             );
                             let is_ipv6 = query.qtype == 28;
@@ -272,7 +272,7 @@ impl LocalDomainInterceptor {
                     }
                 }
                 Err(e) => {
-                    debug!("LLMNR okuma hatasi: {}", e);
+                    debug!("LLMNR okuma hatası: {}", e);
                     tokio::time::sleep(Duration::from_millis(50)).await;
                 }
             }
@@ -283,7 +283,7 @@ impl LocalDomainInterceptor {
         let socket = match tokio::net::UdpSocket::bind("0.0.0.0:0").await {
             Ok(s) => s,
             Err(e) => {
-                warn!("Minecraft LAN yayin soketi olusturulamadi: {}", e);
+                warn!("Minecraft LAN yayın soketi oluşturulamadı: {}", e);
                 return;
             }
         };
@@ -505,7 +505,7 @@ mod tests {
             0x00, 0x01,
         ];
 
-        let query = parse_dns_query(&query_bytes, true).expect("Query parse basarisiz");
+        let query = parse_dns_query(&query_bytes, true).expect("Query parse başarısız");
         assert_eq!(query.id, 0x1234);
         assert_eq!(query.qname, "xeptra.local");
         assert_eq!(query.qtype, 1);
@@ -532,7 +532,7 @@ mod tests {
             0x00, 0x01,
         ];
 
-        let query = parse_dns_query(&query_bytes, false).expect("Query parse basarisiz");
+        let query = parse_dns_query(&query_bytes, false).expect("Query parse başarısız");
         assert_eq!(query.qtype, 28);
 
         let response = build_dns_response(&query, true, false);

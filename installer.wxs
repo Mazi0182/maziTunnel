@@ -3,7 +3,7 @@
   <Product Id="*"
            Name="maziTunnel"
            Language="1033"
-           Version="2.0.0"
+           Version="2.0.1"
            Manufacturer="mazi0182"
            UpgradeCode="C8B715C0-9774-4B33-911E-14639B0A5F20">
 

@@ -83,11 +83,11 @@ def run_build():
 
 def main():
     parser = argparse.ArgumentParser(description="maziTunnel Cloudflare R2 Publisher")
-    parser.add_argument("version", nargs="?", default="2.0.0", help="Yayınlanacak sürüm (varsayılan: 2.0.0)")
+    parser.add_argument("version", nargs="?", default="2.0.1", help="Yayınlanacak sürüm (varsayılan: 2.0.1)")
     parser.add_argument(
         "notes",
         nargs="?",
-        default="maziTunnel v2.0.0: Saf Rust ile yeniden yazılmış yüksek performanslı P2P tünel altyapısı, modern kurulum sihirbazı ve MSI desteği.",
+        default="maziTunnel v2.0.1: Bağlantı anahtarı yapıştırma ve otomatik tire biçimlendirmesi düzeltildi, CGNAT STUN yenileme ve doğrudan bağlantı kararlılığı iyileştirildi.",
         help="Güncelleme notları"
     )
     parser.add_argument("--skip-build", action="store_true", help="Derleme adımını atla, dist/ içeriğini doğrudan yükle")

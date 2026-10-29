@@ -96,7 +96,7 @@ impl SetupCanvas {
             .and_then(|bytes| FontArc::try_from_vec(bytes).ok())
             .unwrap_or_else(|| {
                 FontArc::try_from_slice(FONT_REGULAR_BYTES)
-                    .expect("Gecerli regular font yuklenemedi")
+                    .expect("Geçerli regular font yüklenemedi")
             });
 
         let font_bold = fs::read(r"C:\Windows\Fonts\segoeuib.ttf")
@@ -104,7 +104,7 @@ impl SetupCanvas {
             .and_then(|bytes| FontArc::try_from_vec(bytes).ok())
             .unwrap_or_else(|| {
                 FontArc::try_from_slice(FONT_BOLD_BYTES)
-                    .expect("Gecerli bold font yuklenemedi")
+                    .expect("Geçerli bold font yüklenemedi")
             });
 
         Self {
@@ -642,7 +642,7 @@ impl SetupState {
 
                 self.canvas.draw_rgba_icon(38, 34, 56, 56, SETUP_ICON_56);
                 self.canvas.draw_text(true, 22.0, 108.0, 34.0, "maziTunnel Kurulum Sihirbazı", rgba(244, 244, 246, 255));
-                self.canvas.draw_text(false, 15.0, 108.0, 64.0, "Bilgisayarınıza maziTunnel v2.0.0 kurulacak.", rgba(161, 161, 170, 255));
+                self.canvas.draw_text(false, 15.0, 108.0, 64.0, "Bilgisayarınıza maziTunnel v2.0.1 kurulacak.", rgba(161, 161, 170, 255));
 
                 // 2. Kurulum Konumu Karti (X: 24, Y: 122, W: 452, H: 62)
                 let loc_x = 24.0;
@@ -809,7 +809,7 @@ impl SetupState {
 
                 self.canvas.draw_rgba_icon(38, 34, 56, 56, SETUP_ICON_56);
                 self.canvas.draw_text(true, 20.0, 108.0, 34.0, "maziTunnel Başarıyla Kuruldu!", rgba(244, 244, 246, 255));
-                self.canvas.draw_text(false, 15.0, 108.0, 64.0, "Sürüm 2.0.0 kullanıma hazır.", rgba(161, 161, 170, 255));
+                self.canvas.draw_text(false, 15.0, 108.0, 64.0, "Sürüm 2.0.1 kullanıma hazır.", rgba(161, 161, 170, 255));
 
                 // 2. Ozet Karti (X: 24, Y: 122, W: 452, H: 148)
                 let d_card_x = 24.0;
@@ -1048,7 +1048,7 @@ fn create_windows_shortcut(target: &Path, shortcut: &Path, workdir: &Path, icon:
                   $s.TargetPath = $env:MT_TARGET; \
                   $s.WorkingDirectory = $env:MT_WORKDIR; \
                   $s.IconLocation = \"$($env:MT_ICON),0\"; \
-                  $s.Description = 'maziTunnel P2P Ag Tuneli'; \
+                  $s.Description = 'maziTunnel P2P Ağ Tüneli'; \
                   $s.Save();";
 
     let mut cmd = Command::new("powershell.exe");
@@ -1107,7 +1107,7 @@ fn register_uninstall_entry(install_dir: &Path, uninstall_exe: &Path, client_exe
             };
 
             set_str("DisplayName", "maziTunnel");
-            set_str("DisplayVersion", "2.0.0");
+            set_str("DisplayVersion", "2.0.1");
             set_str("Publisher", "mazi0182");
             set_str("DisplayIcon", &format!("{},0", client_exe.to_string_lossy()));
             set_str("InstallLocation", &install_dir.to_string_lossy());
@@ -1514,7 +1514,12 @@ fn main() {
         };
         let uninstall_bytes = decode_payload(PAYLOAD_UNINSTALL);
 
-        let _ = fs::write(&exe_client, &client_bytes);
+        for _ in 0..20 {
+            if fs::write(&exe_client, &client_bytes).is_ok() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(150));
+        }
         let _ = fs::write(&exe_uninstall, &uninstall_bytes);
         let _ = fs::write(&icon_path, APP_ICON_ICO);
 

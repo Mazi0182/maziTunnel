@@ -42,7 +42,7 @@ pub fn derive_credentials_from_key(server_key: &str) -> Result<(String, String, 
         .collect::<String>()
         .to_uppercase();
     if clean.len() != 12 {
-        return Err("Gecersiz baglanti kodu! Standart XXXX-XXXX-XXXX (12 karakter) formatinda olmalidir.".to_string());
+        return Err("Geçersiz bağlantı kodu! Standart XXXX-XXXX-XXXX (12 karakter) formatında olmalıdır.".to_string());
     }
     let mut hasher = Sha256::new();
     hasher.update(format!("P2P_TUNNEL_KEY_{}", clean).as_bytes());

@@ -11,7 +11,7 @@ use mazitunnel_core::crypto::{
     generate_server_key, normalize_server_key, PacketCipher,
 };
 use mazitunnel_core::nat_traversal::{
-    discover_public_endpoint, predict_symmetric_ports, SignalingBroker, DEFAULT_BROKERS,
+    discover_public_endpoint, SignalingBroker, DEFAULT_BROKERS,
 };
 use mazitunnel_core::paths::normalize_local_domain;
 use mazitunnel_core::protocol::{
@@ -65,6 +65,7 @@ pub struct ServerDaemon {
     pub history_manager: Arc<RwLock<HistoryManager>>,
     pub public_endpoint: Arc<RwLock<Option<SocketAddr>>>,
     pub active_clients: Arc<RwLock<HashMap<SocketAddr, ActiveClientSnapshot>>>,
+    pub client_candidates: Arc<RwLock<HashMap<SocketAddr, Instant>>>,
     pub start_time: Instant,
     pub udp_sock: Arc<UdpSocket>,
     pub cmd_rx: mpsc::Receiver<PanelCommand>,
@@ -131,6 +132,7 @@ impl ServerDaemon {
             history_manager,
             public_endpoint: Arc::new(RwLock::new(None)),
             active_clients: Arc::new(RwLock::new(HashMap::new())),
+            client_candidates: Arc::new(RwLock::new(HashMap::new())),
             start_time: Instant::now(),
             udp_sock,
             cmd_rx,
@@ -142,6 +144,22 @@ impl ServerDaemon {
     }
 
     pub async fn run(mut self) -> Result<()> {
+        let mut stun_addrs: Vec<SocketAddr> = Vec::new();
+        for host in &["stun.l.google.com:19302", "stun1.l.google.com:19302", "stun.cloudflare.com:3478"] {
+            if let Ok(mut iter) = tokio::net::lookup_host(host).await {
+                if let Some(addr) = iter.next() {
+                    if !stun_addrs.contains(&addr) {
+                        stun_addrs.push(addr);
+                    }
+                }
+            }
+        }
+        if stun_addrs.is_empty() {
+            if let Ok(addr) = "74.125.250.129:19302".parse::<SocketAddr>() {
+                stun_addrs.push(addr);
+            }
+        }
+
         let (pub_ep, is_sym) = match discover_public_endpoint(&self.udp_sock).await {
             Some((ep, sym)) => (Some(ep), sym),
             None => {
@@ -185,6 +203,10 @@ impl ServerDaemon {
         let mut rx_buf = [0u8; 4096];
         let mut kcp_interval = tokio::time::interval(Duration::from_millis(10));
         let mut cleanup_interval = tokio::time::interval(Duration::from_secs(5));
+        let mut stun_interval = tokio::time::interval(Duration::from_secs(5));
+        let mut stun_idx: usize = 0;
+        let mut punch_interval = tokio::time::interval(Duration::from_millis(120));
+        let mut punch_tick: u64 = 0;
 
         loop {
             tokio::select! {
@@ -195,7 +217,7 @@ impl ServerDaemon {
                             self.handle_panel_kick(&addr, &hwid, &sessions).await;
                         }
                         PanelCommand::ReloadSignaling => {
-                            info!("Signaling broker parametreleri guncelleniyor...");
+                            info!("Signaling broker parametreleri güncelleniyor...");
                             signaling_handle.abort();
                             signaling_handle = self.spawn_signaling_broker().await;
                         }
@@ -219,7 +241,7 @@ impl ServerDaemon {
                             self.handle_inbound_udp_datagram(peer_addr, data, &sessions).await;
                         }
                         Err(e) => {
-                            warn!("UDP soket okuma hatasi: {}", e);
+                            warn!("UDP soket okuma hatası: {}", e);
                         }
                     }
                 }
@@ -234,6 +256,58 @@ impl ServerDaemon {
                     self.cleanup_dead_sessions(&sessions).await;
                     self.update_active_clients_snapshot(&sessions).await;
                 }
+
+                // 5. STUN keepalive & dynamic endpoint refresh (every 5s)
+                _ = stun_interval.tick() => {
+                    if !stun_addrs.is_empty() {
+                        let (req, _) = mazitunnel_core::nat_traversal::create_stun_request();
+                        let target = stun_addrs[stun_idx % stun_addrs.len()];
+                        let _ = self.udp_sock.send_to(&req, target).await;
+                        stun_idx = stun_idx.wrapping_add(1);
+                    }
+                }
+
+                // 6. Proactive 120ms Encrypted Hole Punching
+                _ = punch_interval.tick() => {
+                    punch_tick = punch_tick.wrapping_add(1);
+                    let mut cands = Vec::new();
+                    {
+                        let mut guard = self.client_candidates.write().await;
+                        let now = Instant::now();
+                        guard.retain(|_, exp| *exp > now);
+
+                        let sess_guard = sessions.read().await;
+                        guard.retain(|addr, _| !sess_guard.contains_key(addr));
+
+                        for &addr in guard.keys() {
+                            cands.push(addr);
+                        }
+                    }
+                    if !cands.is_empty() {
+                        let room_secret = self.config.read().await.room_secret.clone();
+                        let trial_cipher = PacketCipher::new(&derive_key(&room_secret), true);
+                        let syn_pkt = trial_cipher.encrypt(b"P2P_TUN_PUNCH_SYN");
+
+                        let probe_delta = (punch_tick % 3) == 0;
+                        for cand in cands {
+                            let _ = self.udp_sock.send_to(&syn_pkt, cand).await;
+                            if probe_delta && !mazitunnel_core::nat_traversal::is_lan_addr(cand.ip()) {
+                                let base = cand.port() as i32;
+                                for delta in -5..=40 {
+                                    if delta == 0 {
+                                        continue;
+                                    }
+                                    let p = base + delta;
+                                    if (1024..=65535).contains(&p) {
+                                        let mut dest = cand;
+                                        dest.set_port(p as u16);
+                                        let _ = self.udp_sock.send_to(&syn_pkt, dest).await;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -244,6 +318,17 @@ impl ServerDaemon {
         data: &[u8],
         sessions: &Arc<RwLock<HashMap<SocketAddr, ClientSession>>>,
     ) {
+        // 0. STUN response check
+        if let Some(new_ep) = mazitunnel_core::nat_traversal::parse_stun_response(data, None) {
+            let prev_ep = *self.public_endpoint.read().await;
+            if prev_ep != Some(new_ep) {
+                info!("Dış ağ public endpoint güncellendi (STUN): {:?} -> {}", prev_ep, new_ep);
+                self.logger.log_stun(&new_ep.to_string(), false);
+                *self.public_endpoint.write().await = Some(new_ep);
+            }
+            return;
+        }
+
         // A. Direct UDP Punch response
         if data.starts_with(PUNCH_SYN) || data.starts_with(LEGACY_PUNCH_SYN) {
             let _ = self.udp_sock.send_to(PUNCH_ACK, peer_addr).await;
@@ -251,179 +336,185 @@ impl ServerDaemon {
             return;
         }
 
-        // B. Active session lookup or trial decrypt
-        let room_secret = self.config.read().await.room_secret.clone();
-        let base_key = derive_key(&room_secret);
-
+        // B. Active session lookup (fast-path: bypasses config read & key derivation)
         let mut sessions_guard = sessions.write().await;
-        let session = match sessions_guard.get_mut(&peer_addr) {
-            Some(s) => s,
-            None => {
-                let trial_cipher = PacketCipher::new(&base_key, true);
-                if let Some(plain) = trial_cipher.decrypt(data) {
-                    if plain.starts_with(b"P2P_TUN_PUNCH_SYN") || plain.starts_with(b"MAZITUN_PUNCH_SYN") {
-                        let _ = self
-                            .udp_sock
-                            .send_to(&trial_cipher.encrypt(b"P2P_TUN_PUNCH_ACK"), peer_addr)
-                            .await;
-                        return;
-                    }
-                    if plain.starts_with(b"P2P_TUN_PUNCH") || plain.starts_with(b"MAZITUN_PUNCH") {
-                        return;
-                    }
-                    if plain.starts_with(b"P2P_TUN_OOB_PING:") {
-                        let pong = trial_cipher.encrypt(
-                            [b"P2P_TUN_OOB_PONG:", &plain[b"P2P_TUN_OOB_PING:".len()..]]
-                                .concat()
-                                .as_slice(),
-                        );
-                        let _ = self.udp_sock.send_to(&pong, peer_addr).await;
-                        return;
-                    }
+        if let Some(session) = sessions_guard.get_mut(&peer_addr) {
+            session.rx_bytes = session.rx_bytes.saturating_add(data.len() as u64);
+            session.last_activity = Instant::now();
 
-                    let unauth_count = sessions_guard.values().filter(|s| !s.authenticated).count();
-                    let total_count = sessions_guard.len();
-                    if unauth_count >= 64 || total_count >= 128 {
-                        let oldest_unauth = sessions_guard
-                            .iter()
-                            .filter(|(_, s)| !s.authenticated)
-                            .min_by_key(|(_, s)| s.last_activity)
-                            .map(|(a, _)| *a);
-
-                        if let Some(old_addr) = oldest_unauth {
-                            sessions_guard.remove(&old_addr);
-                            self.logger.log_detailed(
-                                "SESSION_LIMIT",
-                                &format!("Eski dogrulanmamis oturum temizlendi: {}", old_addr),
-                            );
-                        } else {
-                            self.logger.log_detailed(
-                                "FLOOD_BLOCKED",
-                                &format!(
-                                    "Maksimum oturum limitine ulasildi (128), yeni istek reddedildi: {}",
-                                    peer_addr
-                                ),
-                            );
-                            return;
+            if let Some(decrypted) = session.cipher.decrypt(data) {
+                if decrypted.starts_with(b"P2P_TUN_PUNCH_SYN") || decrypted.starts_with(b"MAZITUN_PUNCH_SYN") {
+                    let _ = self
+                        .udp_sock
+                        .send_to(&session.cipher.encrypt(b"P2P_TUN_PUNCH_ACK"), peer_addr)
+                        .await;
+                    return;
+                }
+                if decrypted.starts_with(b"P2P_TUN_PUNCH") || decrypted.starts_with(b"MAZITUN_PUNCH") {
+                    return;
+                }
+                if decrypted.starts_with(b"P2P_TUN_OOB_PING:") {
+                    let pong = session.cipher.encrypt(
+                        [b"P2P_TUN_OOB_PONG:", &decrypted[b"P2P_TUN_OOB_PING:".len()..]]
+                            .concat()
+                            .as_slice(),
+                    );
+                    let _ = self.udp_sock.send_to(&pong, peer_addr).await;
+                    return;
+                }
+                if decrypted.starts_with(b"P2P_TUN_OOB_PONG:") {
+                    let body = &decrypted[b"P2P_TUN_OOB_PONG:".len()..];
+                    if let Ok(s) = std::str::from_utf8(body) {
+                        if let Ok(sent_ts) = s.parse::<f64>() {
+                            let now_ts = SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs_f64();
+                            session.ping_ms = ((now_ts - sent_ts) * 1000.0).max(0.5) as u32;
                         }
-                    }
-
-                    let mut kcp = KcpEngine::new(2026);
-                    let now_ms = kcp.now_ms();
-                    let acks = kcp.input(&plain, now_ms);
-
-                    for ack in acks {
-                        let enc = trial_cipher.encrypt(&ack);
-                        let _ = self.udp_sock.send_to(&enc, peer_addr).await;
-                    }
-
-                    let mut frame_buf = Vec::new();
-                    while let Some(chunk) = kcp.recv() {
-                        frame_buf.extend_from_slice(&chunk);
-                    }
-
-                    let mut ready_frames = Vec::new();
-                    while let Some((frame, consumed)) = Frame::decode(&frame_buf) {
-                        frame_buf.drain(..consumed);
-                        ready_frames.push(frame);
-                    }
-
-                    let new_session = ClientSession {
-                        addr: peer_addr,
-                        kcp,
-                        frame_buf,
-                        cipher: trial_cipher,
-                        role: Role::Player,
-                        authenticated: false,
-                        username: "Bilinmeyen".to_string(),
-                        hostname: "-".to_string(),
-                        hwid: "".to_string(),
-                        hwid_details: serde_json::Value::Null,
-                        os: "Bilinmiyor".to_string(),
-                        version: "-".to_string(),
-                        virtual_ip: "".to_string(),
-                        joined_at: Instant::now(),
-                        last_activity: Instant::now(),
-                        rx_bytes: data.len() as u64,
-                        tx_bytes: 0,
-                        ping_ms: 0,
-                        tcp_streams: HashMap::new(),
-                        has_joined_game: false,
-                    };
-
-                    sessions_guard.insert(peer_addr, new_session);
-                    drop(sessions_guard);
-
-                    for frame in ready_frames {
-                        self.process_client_frame(peer_addr, frame, sessions).await;
                     }
                     return;
                 }
-                return;
-            }
-        };
 
-        session.rx_bytes = session.rx_bytes.saturating_add(data.len() as u64);
-        session.last_activity = Instant::now();
+                if decrypted.len() >= 24 {
+                    let now_ms = session.kcp.now_ms();
+                    let acks = session.kcp.input(&decrypted, now_ms);
 
-        if let Some(decrypted) = session.cipher.decrypt(data) {
-            if decrypted.starts_with(b"P2P_TUN_PUNCH_SYN") || decrypted.starts_with(b"MAZITUN_PUNCH_SYN") {
-                let _ = self
-                    .udp_sock
-                    .send_to(&session.cipher.encrypt(b"P2P_TUN_PUNCH_ACK"), peer_addr)
-                    .await;
+                    for ack in acks {
+                        let enc = session.cipher.encrypt(&ack);
+                        let _ = self.udp_sock.send_to(&enc, peer_addr).await;
+                    }
+
+                    while let Some(chunk) = session.kcp.recv() {
+                        session.frame_buf.extend_from_slice(&chunk);
+                    }
+
+                    let mut ready_frames = Vec::new();
+                    while let Some((frame, consumed)) = Frame::decode(&session.frame_buf) {
+                        session.frame_buf.drain(..consumed);
+                        ready_frames.push(frame);
+                    }
+
+                    drop(sessions_guard);
+                    for frame in ready_frames {
+                        self.process_client_frame(peer_addr, frame, sessions).await;
+                    }
+                }
                 return;
             }
-            if decrypted.starts_with(b"P2P_TUN_PUNCH") || decrypted.starts_with(b"MAZITUN_PUNCH") {
+
+            // Decryption with active session cipher failed.
+            // If packet is larger than 64 bytes, it is not a punch or handshake probe.
+            if data.len() > 64 {
                 return;
             }
-            if decrypted.starts_with(b"P2P_TUN_OOB_PING:") {
-                let pong = session.cipher.encrypt(
-                    [b"P2P_TUN_OOB_PONG:", &decrypted[b"P2P_TUN_OOB_PING:".len()..]]
+        }
+        drop(sessions_guard);
+
+        // C. Slow-path: Handshake / Punch trial decryption with base_key
+        let room_secret = self.config.read().await.room_secret.clone();
+        let base_key = derive_key(&room_secret);
+        let trial_cipher = PacketCipher::new(&base_key, true);
+
+        if let Some(plain) = trial_cipher.decrypt(data) {
+            if plain.starts_with(b"P2P_TUN_PUNCH_SYN") || plain.starts_with(b"MAZITUN_PUNCH_SYN") {
+                let ack_pkt = trial_cipher.encrypt(b"P2P_TUN_PUNCH_ACK");
+                for _ in 0..4 {
+                    let _ = self.udp_sock.send_to(&ack_pkt, peer_addr).await;
+                }
+                return;
+            }
+            if plain.starts_with(b"P2P_TUN_PUNCH") || plain.starts_with(b"MAZITUN_PUNCH") {
+                return;
+            }
+            if plain.starts_with(b"P2P_TUN_OOB_PING:") {
+                let pong = trial_cipher.encrypt(
+                    [b"P2P_TUN_OOB_PONG:", &plain[b"P2P_TUN_OOB_PING:".len()..]]
                         .concat()
                         .as_slice(),
                 );
                 let _ = self.udp_sock.send_to(&pong, peer_addr).await;
                 return;
             }
-            if decrypted.starts_with(b"P2P_TUN_OOB_PONG:") {
-                let body = &decrypted[b"P2P_TUN_OOB_PONG:".len()..];
-                if let Ok(s) = std::str::from_utf8(body) {
-                    if let Ok(sent_ts) = s.parse::<f64>() {
-                        let now_ts = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs_f64();
-                        session.ping_ms = ((now_ts - sent_ts) * 1000.0).max(0.5) as u32;
-                    }
-                }
-                return;
-            }
 
-            if decrypted.len() >= 24 {
-                let now_ms = session.kcp.now_ms();
-                let acks = session.kcp.input(&decrypted, now_ms);
+            let mut sessions_guard = sessions.write().await;
+            let unauth_count = sessions_guard.values().filter(|s| !s.authenticated).count();
+            let total_count = sessions_guard.len();
+            if unauth_count >= 64 || total_count >= 128 {
+                let oldest_unauth = sessions_guard
+                    .iter()
+                    .filter(|(_, s)| !s.authenticated)
+                    .min_by_key(|(_, s)| s.last_activity)
+                    .map(|(a, _)| *a);
 
-                for ack in acks {
-                    let enc = session.cipher.encrypt(&ack);
-                    let _ = self.udp_sock.send_to(&enc, peer_addr).await;
-                }
-
-                while let Some(chunk) = session.kcp.recv() {
-                    session.frame_buf.extend_from_slice(&chunk);
-                }
-
-                let mut ready_frames = Vec::new();
-                while let Some((frame, consumed)) = Frame::decode(&session.frame_buf) {
-                    session.frame_buf.drain(..consumed);
-                    ready_frames.push(frame);
-                }
-
-                drop(sessions_guard);
-                for frame in ready_frames {
-                    self.process_client_frame(peer_addr, frame, sessions).await;
+                if let Some(old_addr) = oldest_unauth {
+                    sessions_guard.remove(&old_addr);
+                    self.logger.log_detailed(
+                        "SESSION_LIMIT",
+                        &format!("Eski doğrulanmamış oturum temizlendi: {}", old_addr),
+                    );
+                } else {
+                    self.logger.log_detailed(
+                        "FLOOD_BLOCKED",
+                        &format!(
+                            "Maksimum oturum limitine ulaşıldı (128), yeni istek reddedildi: {}",
+                            peer_addr
+                        ),
+                    );
+                    return;
                 }
             }
+
+            let mut kcp = KcpEngine::new(2026);
+            let now_ms = kcp.now_ms();
+            let acks = kcp.input(&plain, now_ms);
+
+            for ack in acks {
+                let enc = trial_cipher.encrypt(&ack);
+                let _ = self.udp_sock.send_to(&enc, peer_addr).await;
+            }
+
+            let mut frame_buf = Vec::new();
+            while let Some(chunk) = kcp.recv() {
+                frame_buf.extend_from_slice(&chunk);
+            }
+
+            let mut ready_frames = Vec::new();
+            while let Some((frame, consumed)) = Frame::decode(&frame_buf) {
+                frame_buf.drain(..consumed);
+                ready_frames.push(frame);
+            }
+
+            let new_session = ClientSession {
+                addr: peer_addr,
+                kcp,
+                frame_buf,
+                cipher: trial_cipher,
+                role: Role::Player,
+                authenticated: false,
+                username: "Bilinmeyen".to_string(),
+                hostname: "-".to_string(),
+                hwid: "".to_string(),
+                hwid_details: serde_json::Value::Null,
+                os: "Bilinmiyor".to_string(),
+                version: "-".to_string(),
+                virtual_ip: "".to_string(),
+                joined_at: Instant::now(),
+                last_activity: Instant::now(),
+                rx_bytes: data.len() as u64,
+                tx_bytes: 0,
+                ping_ms: 0,
+                tcp_streams: HashMap::new(),
+                has_joined_game: false,
+            };
+
+            sessions_guard.insert(peer_addr, new_session);
+            drop(sessions_guard);
+
+            for frame in ready_frames {
+                self.process_client_frame(peer_addr, frame, sessions).await;
+            }
+            return;
         }
     }
 
@@ -454,7 +545,7 @@ impl ServerDaemon {
                                 proof: String::new(),
                                 address: String::new(),
                                 port: 0,
-                                reason: "Cok fazla basarisiz deneme. 60 saniye bekleyin.".to_string(),
+                                reason: "Çok fazla başarısız deneme. 60 saniye bekleyin.".to_string(),
                                 server_name: String::new(),
                             };
                             let resp_payload = serde_json::to_vec(&auth_resp).unwrap_or_default();
@@ -475,7 +566,7 @@ impl ServerDaemon {
                 let auth_req: AuthRequest = match serde_json::from_slice(&frame.payload) {
                     Ok(r) => r,
                     Err(e) => {
-                        warn!("Gecersiz AuthRequest JSON ({:?}): {}", peer_addr, e);
+                        warn!("Geçersiz AuthRequest JSON ({:?}): {}", peer_addr, e);
                         return;
                     }
                 };
@@ -581,7 +672,7 @@ impl ServerDaemon {
                         session.cipher.set_session_key(session_key);
 
                         info!(
-                            "Oyuncu basariyla dogrulandi: {} ({}) [{}] -> Sanal IP: {}",
+                            "Oyuncu başarıyla doğrulandı: {} ({}) [{}] -> Sanal IP: {}",
                             session.username,
                             session.hwid,
                             role.as_str(),
@@ -599,6 +690,7 @@ impl ServerDaemon {
                         );
 
                         drop(sessions_guard);
+                        self.client_candidates.write().await.remove(&peer_addr);
                         self.update_active_clients_snapshot(sessions).await;
                     }
                     Err(reason) => {
@@ -613,7 +705,7 @@ impl ServerDaemon {
                             self.logger.log_detailed(
                                 "AUTH_FAIL",
                                 &format!(
-                                    "Giris basarisiz: {} ({:?}) - {}",
+                                    "Giriş başarısız: {} ({:?}) - {}",
                                     auth_req.username, peer_addr, reason
                                 ),
                             );
@@ -631,7 +723,7 @@ impl ServerDaemon {
                                 blocked.insert(ip, now + Duration::from_secs(60));
                                 self.logger.log_detailed(
                                     "FLOOD_BLOCKED",
-                                    &format!("IP 60 saniye engellendi (>8 basarisiz deneme): {}", ip),
+                                    &format!("IP 60 saniye engellendi (>8 başarısız deneme): {}", ip),
                                 );
                             }
                         }
@@ -716,7 +808,7 @@ impl ServerDaemon {
 
                 if !authenticated || !self.acl.is_port_allowed(role, target_port) {
                     warn!(
-                        "Port erisimi reddedildi: {:?} -> Port {} (Rol: {:?})",
+                        "Port erişimi reddedildi: {:?} -> Port {} (Rol: {:?})",
                         peer_addr,
                         target_port,
                         role
@@ -735,7 +827,7 @@ impl ServerDaemon {
                 if role == Role::Player && stream_count >= 16 {
                     self.logger.log_detailed(
                         "STREAM_LIMIT",
-                        &format!("Oyuncu eszamanli stream limiti (16) asildi: {:?}", peer_addr),
+                        &format!("Oyuncu eşzamanlı akış limiti (16) aşıldı: {:?}", peer_addr),
                     );
                     let close_frame = Frame::new(
                         Cmd::Close,
@@ -870,7 +962,7 @@ impl ServerDaemon {
                         sess.rx_bytes,
                         sess.tx_bytes,
                     );
-                    info!("Istemci baglantiyi sonlandirdi: {:?}", peer_addr);
+                    info!("İstemci bağlantıyı sonlandırdı: {:?}", peer_addr);
                     if sess.authenticated {
                         self.logger.log_disconnect(
                             &sess.username,
@@ -996,7 +1088,7 @@ impl ServerDaemon {
                         let _ = self.udp_sock.send_to(&enc, addr).await;
                     }
                     hist.record_leave(&addr.to_string(), dur, rx, tx);
-                    self.logger.log_summary(&format!("{} baglantisi kesildi (Anahtar yenilendi).", username));
+                    self.logger.log_summary(&format!("{} bağlantısı kesildi (Anahtar yenilendi).", username));
                 }
             }
         }
@@ -1089,8 +1181,8 @@ impl ServerDaemon {
                     sess.rx_bytes,
                     sess.tx_bytes,
                 );
-                info!("Yonetici tarafindan istemci atildi: {:?}", target);
-                self.logger.log_kick(&sess.username, &target.to_string(), "Yonetici tarafindan atildi");
+                info!("Yönetici tarafından istemci atıldı: {:?}", target);
+                self.logger.log_kick(&sess.username, &target.to_string(), "Yönetici tarafından atıldı");
             }
         }
     }
@@ -1105,13 +1197,16 @@ impl ServerDaemon {
         let local_port = self.udp_sock.local_addr().map(|a| a.port()).unwrap_or(25566);
         let pub_ep_ref = self.public_endpoint.clone();
         let udp_sock_ref = self.udp_sock.clone();
+        let client_candidates_ref = self.client_candidates.clone();
 
         tokio::spawn(async move {
             let broker_urls: Vec<String> = DEFAULT_BROKERS.iter().map(|&s| s.to_string()).collect();
             let broker = SignalingBroker::new(broker_urls);
             let cipher_broker = PacketCipher::new(&derive_key(&room_sec), true);
-            let mut interval = tokio::time::interval(Duration::from_millis(3000));
-            let mut since = "all".to_string();
+            let mut interval = tokio::time::interval(Duration::from_millis(1000));
+            let mut last_hello_publish: Option<Instant> = None;
+            let mut last_published_ep: Option<SocketAddr> = None;
+            let mut seen_msgs: HashMap<String, Instant> = HashMap::new();
 
             loop {
                 interval.tick().await;
@@ -1120,12 +1215,10 @@ impl ServerDaemon {
                     .map(|v| v != "1" && !v.eq_ignore_ascii_case("true"))
                     .unwrap_or(true);
 
-                let (pub_ip, pub_port) = {
-                    let ep_guard = pub_ep_ref.read().await;
-                    match *ep_guard {
-                        Some(ep) => (ep.ip().to_string(), ep.port()),
-                        None => ("127.0.0.1".to_string(), local_port),
-                    }
+                let current_ep = *pub_ep_ref.read().await;
+                let (pub_ip, pub_port) = match current_ep {
+                    Some(ep) => (ep.ip().to_string(), ep.port()),
+                    None => ("127.0.0.1".to_string(), local_port),
                 };
 
                 let my_lan_ip = mazitunnel_core::nat_traversal::get_local_lan_ip();
@@ -1134,8 +1227,8 @@ impl ServerDaemon {
                     .unwrap_or_default()
                     .as_secs_f64();
 
-                let make_server_hello_hex = |ip: &str, port: u16| -> String {
-                    let server_hello = serde_json::json!({
+                let make_server_hello_hex = |ip: &str, port: u16, target_cid: Option<&str>| -> String {
+                    let mut server_hello = serde_json::json!({
                         "type": "server_hello",
                         "ip": ip,
                         "port": port,
@@ -1143,25 +1236,42 @@ impl ServerDaemon {
                         "local_port": local_port,
                         "ts": now_ts,
                     });
+                    if let Some(cid) = target_cid {
+                        server_hello["client_id"] = serde_json::Value::String(cid.to_string());
+                    }
                     let enc = cipher_broker.encrypt(server_hello.to_string().as_bytes());
                     hex::encode(enc)
                 };
 
-                // 1. Publish encrypted JSON server_hello & legacy SERVER:<pub>|lan
-                let server_hello_hex = make_server_hello_hex(&pub_ip, pub_port);
-                let _ = broker.publish(&room_id, &server_hello_hex).await;
+                // Clean seen_msgs older than 120s
+                let now_inst = Instant::now();
+                seen_msgs.retain(|_, t| now_inst.saturating_duration_since(*t) < Duration::from_secs(120));
 
-                let legacy_payload = format!("SERVER:{}:{}|{}:{}", pub_ip, pub_port, my_lan_ip, local_port);
-                let _ = broker.publish(&room_id, &hex::encode(cipher_broker.encrypt(legacy_payload.as_bytes()))).await;
+                let should_publish_periodic = match last_hello_publish {
+                    None => true, // First startup iteration
+                    Some(t) => {
+                        current_ep != last_published_ep || t.elapsed() >= Duration::from_secs(45)
+                    }
+                };
 
-                // 2. Poll for incoming messages (CLIENT:<public_endpoint> or JSON client_hello)
-                if let Ok(msgs) = broker.poll_messages(&room_id, &since).await {
-                    let mut saw_client = false;
+                if should_publish_periodic {
+                    let hello_hex = make_server_hello_hex(&pub_ip, pub_port, None);
+                    let _ = broker.publish(&room_id, &hello_hex).await;
+                    let legacy_payload = format!("SERVER:{}:{}|{}:{}", pub_ip, pub_port, my_lan_ip, local_port);
+                    let _ = broker.publish(&room_id, &hex::encode(cipher_broker.encrypt(legacy_payload.as_bytes()))).await;
+                    last_hello_publish = Some(Instant::now());
+                    last_published_ep = current_ep;
+                }
+
+                // Poll incoming messages
+                if let Ok(msgs) = broker.poll_messages(&room_id, "60s").await {
                     for msg in msgs {
-                        let mut targets: Vec<SocketAddr> = Vec::new();
-                        let mut is_client_hello = false;
+                        let trimmed = msg.trim();
+                        if trimmed.is_empty() {
+                            continue;
+                        }
 
-                        let decrypted_opt = if let Ok(raw_bytes) = hex::decode(msg.trim()) {
+                        let decrypted_opt = if let Ok(raw_bytes) = hex::decode(trimmed) {
                             cipher_broker.decrypt(&raw_bytes)
                         } else {
                             None
@@ -1170,51 +1280,104 @@ impl ServerDaemon {
                         let json_val = if let Some(ref dec) = decrypted_opt {
                             serde_json::from_slice::<Value>(dec).ok()
                         } else {
-                            serde_json::from_str::<Value>(&msg).ok()
+                            serde_json::from_str::<Value>(trimmed).ok()
                         };
 
                         if let Some(val) = json_val {
                             if val.get("type").and_then(|v| v.as_str()) == Some("client_hello") {
-                                is_client_hello = true;
-                                saw_client = true;
+                                let ts = val.get("ts").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                                if ts > 0.0 && (now_ts - ts).abs() > 60.0 {
+                                    continue;
+                                }
+
+                                let msg_id = val.get("msg_id")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string())
+                                    .unwrap_or_else(|| trimmed.to_string());
+
+                                if seen_msgs.contains_key(&msg_id) {
+                                    continue;
+                                }
+                                seen_msgs.insert(msg_id, Instant::now());
 
                                 let cip = val.get("ip").and_then(|v| v.as_str()).unwrap_or("");
                                 let cport = val.get("port").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
                                 let clan = val.get("lan_ip").and_then(|v| v.as_str()).unwrap_or("");
                                 let clocal_port = val.get("local_port").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+                                let cid = val.get("client_id").or_else(|| val.get("cid")).and_then(|v| v.as_str()).unwrap_or("");
 
-                                if !clan.is_empty() && clocal_port > 0 {
+                                let mut targets: Vec<SocketAddr> = Vec::new();
+                                // Only add clan:clocal_port to targets if cip == pub_ip (same public IP / same LAN)
+                                if cip == pub_ip && !clan.is_empty() && clocal_port > 0 {
                                     if let Ok(addr) = format!("{}:{}", clan, clocal_port).parse::<SocketAddr>() {
                                         if !targets.contains(&addr) {
                                             targets.push(addr);
                                         }
                                     }
                                 }
-                                if !cip.is_empty() && cport > 0 {
+
+                                // Always add cip:cport if valid and not 127.0.0.1
+                                if !cip.is_empty() && cport > 0 && cip != "127.0.0.1" {
                                     if let Ok(addr) = format!("{}:{}", cip, cport).parse::<SocketAddr>() {
                                         if !targets.contains(&addr) {
                                             targets.push(addr);
                                         }
                                     }
                                 }
-                                if let Some(ts) = val.get("public_endpoint").and_then(|v| v.as_str()) {
-                                    if let Ok(addr) = ts.parse::<SocketAddr>() {
-                                        if !targets.contains(&addr) {
-                                            targets.push(addr);
+
+                                for target_addr in targets {
+                                    if !allow_wan && !mazitunnel_core::nat_traversal::is_lan_addr(target_addr.ip()) {
+                                        continue;
+                                    }
+
+                                    client_candidates_ref.write().await.insert(
+                                        target_addr,
+                                        Instant::now() + Duration::from_secs(25),
+                                    );
+
+                                    let enc_syn = cipher_broker.encrypt(b"P2P_TUN_PUNCH_SYN");
+                                    let enc_ack = cipher_broker.encrypt(b"P2P_TUN_PUNCH_ACK");
+                                    let _ = udp_sock_ref.send_to(&enc_syn, target_addr).await;
+                                    let _ = udp_sock_ref.send_to(&enc_ack, target_addr).await;
+
+                                    if !mazitunnel_core::nat_traversal::is_lan_addr(target_addr.ip()) {
+                                        let base = target_addr.port() as i32;
+                                        for delta in -5..=40 {
+                                            if delta == 0 {
+                                                continue;
+                                            }
+                                            let p = base + delta;
+                                            if (1024..=65535).contains(&p) {
+                                                let mut dest = target_addr;
+                                                dest.set_port(p as u16);
+                                                let _ = udp_sock_ref.send_to(&enc_syn, dest).await;
+                                            }
                                         }
                                     }
                                 }
+
+                                // Immediately publish server_hello (including "client_id": cid in JSON)
+                                let resp_hex = make_server_hello_hex(&pub_ip, pub_port, if cid.is_empty() { None } else { Some(cid) });
+                                let _ = broker.publish(&room_id, &resp_hex).await;
+                                last_hello_publish = Some(Instant::now());
+                                last_published_ep = current_ep;
                             }
                         } else {
                             let text_opt = if let Some(ref dec) = decrypted_opt {
                                 std::str::from_utf8(dec).ok().map(|s| s.to_string())
                             } else {
-                                Some(msg.clone())
+                                Some(trimmed.to_string())
                             };
 
                             if let Some(text) = text_opt {
                                 if let Some(client_ep_str) = text.strip_prefix("CLIENT:") {
-                                    saw_client = true;
+                                    let msg_id = trimmed.to_string();
+                                    if seen_msgs.contains_key(&msg_id) {
+                                        continue;
+                                    }
+                                    seen_msgs.insert(msg_id, Instant::now());
+
+                                    let mut targets: Vec<SocketAddr> = Vec::new();
                                     for part in client_ep_str.split('|') {
                                         if let Ok(addr) = part.trim().parse::<SocketAddr>() {
                                             if !targets.contains(&addr) {
@@ -1222,34 +1385,30 @@ impl ServerDaemon {
                                             }
                                         }
                                     }
+
+                                    for target_addr in targets {
+                                        if !allow_wan && !mazitunnel_core::nat_traversal::is_lan_addr(target_addr.ip()) {
+                                            continue;
+                                        }
+                                        client_candidates_ref.write().await.insert(
+                                            target_addr,
+                                            Instant::now() + Duration::from_secs(25),
+                                        );
+
+                                        let enc_syn = cipher_broker.encrypt(b"P2P_TUN_PUNCH_SYN");
+                                        let enc_ack = cipher_broker.encrypt(b"P2P_TUN_PUNCH_ACK");
+                                        let _ = udp_sock_ref.send_to(&enc_syn, target_addr).await;
+                                        let _ = udp_sock_ref.send_to(&enc_ack, target_addr).await;
+                                    }
+
+                                    let resp_hex = make_server_hello_hex(&pub_ip, pub_port, None);
+                                    let _ = broker.publish(&room_id, &resp_hex).await;
+                                    last_hello_publish = Some(Instant::now());
+                                    last_published_ep = current_ep;
                                 }
                             }
                         }
-
-                        if is_client_hello {
-                            let resp_hex = make_server_hello_hex(&pub_ip, pub_port);
-                            let _ = broker.publish(&room_id, &resp_hex).await;
-                        }
-
-                        for target_addr in targets {
-                            if !allow_wan && !mazitunnel_core::nat_traversal::is_lan_addr(target_addr.ip()) {
-                                continue;
-                            }
-                            let punch_ports = predict_symmetric_ports(target_addr.port());
-                            for p in punch_ports {
-                                let mut dest = target_addr;
-                                dest.set_port(p);
-                                let _ = udp_sock_ref.send_to(PUNCH_ACK, dest).await;
-                                let _ = udp_sock_ref.send_to(LEGACY_PUNCH_ACK, dest).await;
-                            }
-                        }
                     }
-
-                    if saw_client {
-                        let resp_hex = make_server_hello_hex(&pub_ip, pub_port);
-                        let _ = broker.publish(&room_id, &resp_hex).await;
-                    }
-                    since = "now".to_string();
                 }
             }
         })
@@ -1263,19 +1422,19 @@ impl ServerDaemon {
         };
 
         println!("\n================================================================");
-        println!("                  maziTunnel SUNUCU SERVISI");
+        println!("                  maziTunnel SUNUCU SERVİSİ");
         println!("================================================================");
-        println!("  Sunucu Adi       : {}", cfg.server_name);
+        println!("  Sunucu Adı       : {}", cfg.server_name);
         println!("  Yerel UDP Portu  : {}", cfg.server_udp_port);
-        println!("  Dis Ag (STUN)    : {}", pub_str);
-        println!("  Baglanti Adresi  : {}", cfg.connection_address);
+        println!("  Dış Ağ (STUN)    : {}", pub_str);
+        println!("  Bağlantı Adresi  : {}", cfg.connection_address);
         println!("  Oyun Portu       : {}", cfg.game_port);
-        println!("  maziPanel Koprusu: 127.0.0.1:{}", cfg.web_port);
+        println!("  maziPanel Köprüsü: 127.0.0.1:{}", cfg.web_port);
         println!("----------------------------------------------------------------");
-        println!("  [OYUNCU BAGLANTI KODU] (Oyuncularla Paylasilacak):");
+        println!("  [OYUNCU BAĞLANTI KODU] (Oyuncularla Paylaşılacak):");
         println!("  >> {}", cfg.server_key);
         println!();
-        println!("  [GIZLI YONETICI SIFRESI] (SSH ve Yonetim Icin):");
+        println!("  [GİZLİ YÖNETİCİ ŞİFRESİ] (SSH ve Yönetim İçin):");
         println!("  >> {}", cfg.admin_secret);
         println!("================================================================\n");
     }
@@ -1298,7 +1457,7 @@ async fn handle_tcp_bridge(
         }
         Err(e) => {
             warn!(
-                "Hedef port {} baglantisi basarisiz (Sanal IP: {}): {}",
+                "Hedef port {} bağlantısı başarısız (Sanal IP: {}): {}",
                 target_port, virtual_ip, e
             );
             let close_frame = Frame::new(Cmd::Close, stream_id, target_port, Bytes::new());
@@ -1432,7 +1591,7 @@ pub fn ensure_virtual_ip_subnet() {
             .status();
 
         if let Err(e) = cmd {
-            warn!("Sanal IP yonlendirme rotasi uygulanamadi: {}", e);
+            warn!("Sanal IP yönlendirme rotası uygulanamadı: {}", e);
         }
     }
 }
