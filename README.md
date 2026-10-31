@@ -17,7 +17,7 @@
 
 **maziTunnel**, STUN ve şifreli sinyalleşme üzerinden **UDP Hole Punching** yaparak istemci ile sunucu arasında doğrudan uçtan uca bağlantı kurar. Yerel ağda çalışan TCP servislerini (Minecraft sunucusu ve yönetim için SSH) port açmaya veya statik IP adresine ihtiyaç duymadan dış ağa ulaştırır.
 
-Önceki Python tabanlı sürümün yerini alan v2.0.0 sürümü, tamamen **Rust** ile sıfırdan yazılmıştır. Harici bir tarayıcı motoru veya ağır arayüz kütüphanesi kullanmaz; doğrudan Win32 üzerinde çalışan özel çizim motoru sayesinde istemci boyutu **40.11 MB** seviyesinden **2.96 MB** seviyesine düşürülmüş ve çoklu bağlantılardaki paket işleme darboğazları ortadan kaldırılmıştır.
+Önceki Python tabanlı sürümün yerini alan v2.0.1 sürümü, tamamen **Rust** ile sıfırdan yazılmıştır. Harici bir tarayıcı motoru veya ağır arayüz kütüphanesi kullanmaz; doğrudan Win32 üzerinde çalışan özel çizim motoru sayesinde istemci boyutu **40.11 MB** seviyesinden **2.96 MB** seviyesine düşürülmüş ve çoklu bağlantılardaki paket işleme darboğazları ortadan kaldırılmıştır.
 
 ---
 
